@@ -1,0 +1,178 @@
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
+locals {
+  azs = slice(data.aws_availability_zones.available.names, 0, var.az_count)
+
+  tags = merge(
+    {
+      Project     = var.name
+      Environment = var.environment
+      ManagedBy   = "Terraform"
+    },
+    var.tags
+  )
+}
+
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "~> 6.0"
+
+  name = "${var.name}-vpc"
+  cidr = var.vpc_cidr
+
+  azs             = local.azs
+  private_subnets = [for k, az in local.azs : cidrsubnet(var.vpc_cidr, 4, k)]
+  public_subnets  = [for k, az in local.azs : cidrsubnet(var.vpc_cidr, 4, k + 8)]
+
+  enable_nat_gateway = true
+  single_nat_gateway = true
+
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+
+  public_subnet_tags = {
+    "kubernetes.io/role/elb" = 1
+  }
+
+  private_subnet_tags = {
+    "kubernetes.io/role/internal-elb" = 1
+  }
+
+  tags = local.tags
+}
+
+resource "aws_iam_role" "ebs_csi_driver" {
+  name = "${var.name}-ebs-csi-driver"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "pods.eks.amazonaws.com"
+        }
+        Action = [
+          "sts:AssumeRole",
+          "sts:TagSession"
+        ]
+      }
+    ]
+  })
+
+  tags = local.tags
+}
+
+resource "aws_iam_role_policy_attachment" "ebs_csi_driver" {
+  role       = aws_iam_role.ebs_csi_driver.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+}
+
+module "eks" {
+  source  = "terraform-aws-modules/eks/aws"
+  version = "~> 21.0"
+
+  name               = var.name
+  kubernetes_version = var.kubernetes_version
+
+  endpoint_public_access  = true
+  endpoint_private_access = true
+
+  authentication_mode = "API_AND_CONFIG_MAP"
+  enable_cluster_creator_admin_permissions = true
+  enable_irsa                              = true
+
+  node_security_group_additional_rules = {
+    egress_all = {
+      description = "Allow all node outbound traffic"
+      protocol    = "-1"
+      from_port   = 0
+      to_port     = 0
+      type        = "egress"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
+
+  addons = {
+    vpc-cni = {
+      most_recent    = true
+      before_compute = true
+    }
+
+    kube-proxy = {
+      most_recent = true
+    }
+
+    coredns = {
+      most_recent = true
+    }
+
+    aws-ebs-csi-driver = {
+      most_recent = true
+
+      pod_identity_association = [
+        {
+          service_account = "ebs-csi-controller-sa"
+          role_arn        = aws_iam_role.ebs_csi_driver.arn
+        }
+      ]
+    }
+
+    eks-pod-identity-agent = {
+      most_recent = true
+    }
+
+    aws-ebs-csi-driver = {
+      most_recent = true
+
+      pod_identity_association = [
+        {
+          service_account = "ebs-csi-controller-sa"
+          role_arn        = aws_iam_role.ebs_csi_driver.arn
+        }
+      ]
+    }
+  }
+
+  vpc_id     = module.vpc.vpc_id
+  subnet_ids = module.vpc.private_subnets
+
+  eks_managed_node_groups = {
+    default = {
+      name = "default"
+
+      ami_type = "AL2023_x86_64_STANDARD"
+
+      instance_types = var.node_instance_types
+      use_custom_launch_template = false
+
+      min_size     = var.node_min_size
+      desired_size = var.node_desired_size
+      max_size     = var.node_max_size
+
+      disk_size = 50
+
+      labels = {
+        workload = "general"
+      }
+
+      iam_role_additional_policies = {
+        AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      }
+    }
+  }
+
+  tags = local.tags
+
+  enabled_log_types = [
+    "api",
+    "audit",
+    "authenticator",
+    "controllerManager",
+    "scheduler"
+  ]
+
+  
+}
