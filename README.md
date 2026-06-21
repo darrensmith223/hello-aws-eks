@@ -44,3 +44,14 @@ terraform destroy
 
 * Download AWS CLI
 * Configure AWS CLI with `aws configure`
+
+# Deploy
+Run `.\deploy.ps1` (`.\deploy.ps1 -PlanOnly` for the plan only)
+
+Be prepared to enter:
+* AWS token ID
+* AWS access token
+
+
+# Destroy
+Run `.\destroy.ps1`

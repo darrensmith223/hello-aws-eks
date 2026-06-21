@@ -29,3 +29,7 @@ output "oidc_provider_arn" {
 output "kubectl_update_kubeconfig_command" {
   value = module.eks_foundation.kubectl_update_kubeconfig_command
 }
+
+output "aws_region" {
+  value = var.aws_region
+}
