@@ -60,9 +60,15 @@ Be prepared to enter:
 ## Creeate/Update GitHub Repo Keys:
 Run `.\scripts\create-repo-keys.ps1` and enter username and access token when prompted
 
+## Validate the Deployment
+Run `.\scripts\validate-deploy.ps1`
+
 ## Prerequisites
 
 
 
 # Destroy
 Run `.\destroy.ps1`
+
+## Validate the Destroy
+Run `.\scripts\validate-destroy.ps1`

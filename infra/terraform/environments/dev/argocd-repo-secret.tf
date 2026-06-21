@@ -1,4 +1,6 @@
 resource "kubernetes_manifest" "aws_secrets_manager_cluster_store" {
+  depends_on = [helm_release.external_secrets]
+  
   manifest = {
     apiVersion = "external-secrets.io/v1"
     kind       = "ClusterSecretStore"
@@ -32,6 +34,11 @@ resource "kubernetes_manifest" "aws_secrets_manager_cluster_store" {
 }
 
 resource "kubernetes_manifest" "argocd_repo_external_secret" {
+  depends_on = [
+    helm_release.external_secrets,
+    kubernetes_manifest.aws_secrets_manager_cluster_store
+  ]
+  
   manifest = {
     apiVersion = "external-secrets.io/v1"
     kind       = "ExternalSecret"
