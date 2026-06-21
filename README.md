@@ -12,8 +12,12 @@ It creates the foundation:
 - core EKS add-ons
 - EBS CSI add-on
 - IRSA/OIDC support
+- ALB ingress
+- Route53
+- cert-manager
+- ArgoCD
 
-It intentionally does not install ALB ingress, Route53, cert-manager, ArgoCD, Vault, LDAP, monitoring, logging, or application workloads yet.
+It intentionally does not install Vault, LDAP, monitoring, logging, or application workloads yet.
 
 ## Usage
 

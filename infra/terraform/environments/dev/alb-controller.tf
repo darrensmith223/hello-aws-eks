@@ -23,8 +23,8 @@ resource "kubernetes_service_account" "aws_load_balancer_controller" {
     namespace = "kube-system"
 
     labels = {
-      "app.kubernetes.io/name"      = "aws-load-balancer-controller"
-      "app.kubernetes.io/component" = "controller"
+      "app.kubernetes.io/name"       = "aws-load-balancer-controller"
+      "app.kubernetes.io/component"  = "controller"
       "app.kubernetes.io/managed-by" = "Terraform"
     }
 

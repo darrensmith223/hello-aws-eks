@@ -1,10 +1,10 @@
-region             = "us-east-1"
-environment        = "dev"
-name               = "practice-eks-dev"
-kubernetes_version = "1.32"
-vpc_cidr           = "10.20.0.0/16"
+region              = "us-east-1"
+environment         = "dev"
+name                = "practice-eks-dev"
+kubernetes_version  = "1.32"
+vpc_cidr            = "10.20.0.0/16"
 node_instance_types = ["t3.large"]
 node_min_size       = 1
 node_desired_size   = 2
 node_max_size       = 3
-domain_name = "ddsprojects.link"
+domain_name         = "ddsprojects.link"

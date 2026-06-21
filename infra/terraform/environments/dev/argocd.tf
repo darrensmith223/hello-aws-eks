@@ -57,6 +57,7 @@ resource "helm_release" "argocd" {
 
   depends_on = [
     kubernetes_namespace.argocd,
-    aws_acm_certificate_validation.argocd
+    aws_acm_certificate_validation.argocd,
+    helm_release.aws_load_balancer_controller
   ]
 }
