@@ -123,17 +123,6 @@ module "eks" {
     eks-pod-identity-agent = {
       most_recent = true
     }
-
-    aws-ebs-csi-driver = {
-      most_recent = true
-
-      pod_identity_association = [
-        {
-          service_account = "ebs-csi-controller-sa"
-          role_arn        = aws_iam_role.ebs_csi_driver.arn
-        }
-      ]
-    }
   }
 
   vpc_id     = module.vpc.vpc_id

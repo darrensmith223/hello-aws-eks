@@ -42,3 +42,10 @@ variable "node_max_size" {
   type    = number
   default = 3
 }
+
+
+variable "aws_load_balancer_controller_chart_version" {
+  description = "Helm chart version for the AWS Load Balancer Controller."
+  type        = string
+  default     = "1.14.0"
+}

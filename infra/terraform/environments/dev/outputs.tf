@@ -31,5 +31,9 @@ output "kubectl_update_kubeconfig_command" {
 }
 
 output "aws_region" {
-  value = var.aws_region
+  value = var.region
+}
+
+output "aws_load_balancer_controller_role_arn" {
+  value = module.aws_load_balancer_controller_irsa.iam_role_arn
 }
