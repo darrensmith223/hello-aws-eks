@@ -57,6 +57,9 @@ Be prepared to enter:
 * AWS token ID
 * AWS access token
 
+## Creeate/Update GitHub Repo Keys:
+Run `.\scripts\create-repo-keys.ps1` and enter username and access token when prompted
+
 ## Prerequisites
 
 
