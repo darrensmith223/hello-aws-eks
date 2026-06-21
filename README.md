@@ -57,6 +57,9 @@ Be prepared to enter:
 * AWS token ID
 * AWS access token
 
+## Prerequisites
+
+
 
 # Destroy
 Run `.\destroy.ps1`
