@@ -1,5 +1,5 @@
 resource "aws_acm_certificate" "argocd" {
-  domain_name       = local.argocd_hostname
+  domain_name       = local.hostnames.argocd
   validation_method = "DNS"
 
   lifecycle {

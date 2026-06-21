@@ -5,7 +5,12 @@ resource "kubernetes_namespace" "argocd" {
 }
 
 locals {
-  argocd_hostname = "argocd.${var.domain_name}"
+  hostnames = {
+    argocd  = "argocd.${var.domain_name}"
+    grafana = "grafana.${var.domain_name}"
+    ldap    = "ldap.${var.domain_name}"
+    hello   = "hello.${var.domain_name}"
+  }
 }
 
 resource "helm_release" "argocd" {
@@ -17,7 +22,7 @@ resource "helm_release" "argocd" {
   values = [
     yamlencode({
       global = {
-        domain = local.argocd_hostname
+        domain = local.hostnames.argocd
       }
 
       configs = {
@@ -34,7 +39,7 @@ resource "helm_release" "argocd" {
         ingress = {
           enabled          = true
           ingressClassName = "alb"
-          hosts            = [local.argocd_hostname]
+          hosts            = [local.hostnames.argocd]
           path             = "/"
           pathType         = "Prefix"
 
