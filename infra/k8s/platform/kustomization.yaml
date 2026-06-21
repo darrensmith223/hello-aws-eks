@@ -2,23 +2,3 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources: []
-
-configMapGenerator:
-  - name: platform-config
-    namespace: argocd
-    literals:
-      - gitops_repo_url=https://github.com/darrensmith223/hello-aws-eks.git
-
-replacements:
-  - source:
-      kind: ConfigMap
-      name: platform-config
-      namespace: argocd
-      fieldPath: data.gitops_repo_url
-    targets:
-      - select:
-          kind: ExternalSecret
-          name: hello-aws-eks-repo
-          namespace: argocd
-        fieldPaths:
-          - spec.target.template.data.url
