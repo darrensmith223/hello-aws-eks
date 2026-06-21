@@ -16,6 +16,7 @@ It creates the foundation:
 - Route53
 - cert-manager
 - ArgoCD
+- Secrets management (AWS Secrets Manager)
 
 It intentionally does not install Vault, LDAP, monitoring, logging, or application workloads yet.
 

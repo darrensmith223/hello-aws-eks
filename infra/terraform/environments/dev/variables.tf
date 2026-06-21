@@ -53,3 +53,8 @@ variable "domain_name" {
   description = "Base DNS domain for this environment."
   type        = string
 }
+
+variable "gitops_repo_url" {
+  description = "Git repository URL containing ArgoCD platform manifests."
+  type        = string
+}
