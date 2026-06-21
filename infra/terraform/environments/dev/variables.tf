@@ -58,15 +58,3 @@ variable "gitops_repo_url" {
   description = "Git repository URL containing ArgoCD platform manifests."
   type        = string
 }
-
-variable "gitops_repo_username" {
-  description = "Username for ArgoCD to access the GitOps repo."
-  type        = string
-  sensitive   = true
-}
-
-variable "gitops_repo_token" {
-  description = "Token/password for ArgoCD to access the GitOps repo."
-  type        = string
-  sensitive   = true
-}
