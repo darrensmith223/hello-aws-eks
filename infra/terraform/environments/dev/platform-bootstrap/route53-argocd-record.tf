@@ -6,12 +6,8 @@ data "aws_route53_zone" "selected" {
 data "kubernetes_ingress_v1" "argocd" {
   metadata {
     name      = "argocd-server"
-    namespace = kubernetes_namespace.argocd.metadata[0].name
+    namespace = "argocd"
   }
-
-  depends_on = [
-    helm_release.argocd
-  ]
 }
 
 resource "aws_route53_record" "argocd" {
@@ -19,8 +15,7 @@ resource "aws_route53_record" "argocd" {
   name    = local.hostnames.argocd
   type    = "CNAME"
   ttl     = 300
+  records = [data.kubernetes_ingress_v1.argocd.status[0].load_balancer[0].ingress[0].hostname]
 
-  records = [
-    data.kubernetes_ingress_v1.argocd.status[0].load_balancer[0].ingress[0].hostname
-  ]
+  allow_overwrite = true
 }

@@ -37,3 +37,15 @@ output "aws_region" {
 output "aws_load_balancer_controller_role_arn" {
   value = module.aws_load_balancer_controller_irsa.iam_role_arn
 }
+
+output "external_secrets_role_arn" {
+  value = module.external_secrets_irsa.iam_role_arn
+}
+
+output "argocd_certificate_arn" {
+  value = aws_acm_certificate_validation.argocd.certificate_arn
+}
+
+output "hostnames" {
+  value = local.hostnames
+}

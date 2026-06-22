@@ -5,7 +5,7 @@ resource "kubernetes_manifest" "argocd_platform_root" {
 
     metadata = {
       name      = "platform-root"
-      namespace = kubernetes_namespace.argocd.metadata[0].name
+      namespace = "argocd"
     }
 
     spec = {
@@ -34,9 +34,4 @@ resource "kubernetes_manifest" "argocd_platform_root" {
       }
     }
   }
-
-  depends_on = [
-    helm_release.argocd,
-    helm_release.external_secrets
-  ]
 }

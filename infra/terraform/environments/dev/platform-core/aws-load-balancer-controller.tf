@@ -1,22 +1,3 @@
-module "aws_load_balancer_controller_irsa" {
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-  version = "~> 5.0"
-
-  role_name                              = "${var.name}-aws-load-balancer-controller"
-  attach_load_balancer_controller_policy = true
-
-  oidc_providers = {
-    main = {
-      provider_arn               = module.eks_foundation.oidc_provider_arn
-      namespace_service_accounts = ["kube-system:aws-load-balancer-controller"]
-    }
-  }
-
-  tags = {
-    Component = "aws-load-balancer-controller"
-  }
-}
-
 resource "kubernetes_service_account" "aws_load_balancer_controller" {
   metadata {
     name      = "aws-load-balancer-controller"
@@ -29,7 +10,7 @@ resource "kubernetes_service_account" "aws_load_balancer_controller" {
     }
 
     annotations = {
-      "eks.amazonaws.com/role-arn" = module.aws_load_balancer_controller_irsa.iam_role_arn
+      "eks.amazonaws.com/role-arn" = local.aws_outputs.aws_load_balancer_controller_role_arn
     }
   }
 }
@@ -43,7 +24,7 @@ resource "helm_release" "aws_load_balancer_controller" {
 
   set {
     name  = "clusterName"
-    value = module.eks_foundation.cluster_name
+    value = local.aws_outputs.cluster_name
   }
 
   set {
@@ -53,7 +34,7 @@ resource "helm_release" "aws_load_balancer_controller" {
 
   set {
     name  = "vpcId"
-    value = module.eks_foundation.vpc_id
+    value = local.aws_outputs.vpc_id
   }
 
   set {

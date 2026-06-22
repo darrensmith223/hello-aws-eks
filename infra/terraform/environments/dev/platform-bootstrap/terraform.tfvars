@@ -1,0 +1,5 @@
+region          = "us-east-1"
+environment     = "dev"
+name            = "practice-eks-dev"
+domain_name     = "ddsprojects.link"
+gitops_repo_url = "https://github.com/darrensmith223/hello-aws-eks.git"

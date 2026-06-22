@@ -1,5 +1,5 @@
 module "eks_foundation" {
-  source = "../../modules/eks-foundation"
+  source = "../../../modules/eks-foundation"
 
   name               = var.name
   region             = var.region

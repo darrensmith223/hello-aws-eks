@@ -12,11 +12,11 @@ provider "aws" {
 }
 
 data "aws_eks_cluster" "this" {
-  name = module.eks_foundation.cluster_name
+  name = local.aws_outputs.cluster_name
 }
 
 data "aws_eks_cluster_auth" "this" {
-  name = module.eks_foundation.cluster_name
+  name = local.aws_outputs.cluster_name
 }
 
 provider "kubernetes" {

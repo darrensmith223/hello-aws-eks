@@ -1,6 +1,4 @@
 resource "kubernetes_manifest" "aws_secrets_manager_cluster_store" {
-  depends_on = [helm_release.external_secrets]
-  
   manifest = {
     apiVersion = "external-secrets.io/v1"
     kind       = "ClusterSecretStore"
@@ -28,24 +26,16 @@ resource "kubernetes_manifest" "aws_secrets_manager_cluster_store" {
     }
   }
 
-  depends_on = [
-    helm_release.external_secrets
-  ]
 }
 
 resource "kubernetes_manifest" "argocd_repo_external_secret" {
-  depends_on = [
-    helm_release.external_secrets,
-    kubernetes_manifest.aws_secrets_manager_cluster_store
-  ]
-  
   manifest = {
     apiVersion = "external-secrets.io/v1"
     kind       = "ExternalSecret"
 
     metadata = {
       name      = "hello-aws-eks-repo"
-      namespace = kubernetes_namespace.argocd.metadata[0].name
+      namespace = "argocd"
     }
 
     spec = {
@@ -96,7 +86,6 @@ resource "kubernetes_manifest" "argocd_repo_external_secret" {
   }
 
   depends_on = [
-    kubernetes_manifest.aws_secrets_manager_cluster_store,
-    helm_release.argocd
+    kubernetes_manifest.aws_secrets_manager_cluster_store
   ]
 }

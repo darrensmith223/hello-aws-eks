@@ -8,4 +8,3 @@ node_min_size       = 1
 node_desired_size   = 2
 node_max_size       = 3
 domain_name         = "ddsprojects.link"
-gitops_repo_url     = "https://github.com/darrensmith223/hello-aws-eks.git"

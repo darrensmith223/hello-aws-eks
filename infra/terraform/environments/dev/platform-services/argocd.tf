@@ -4,15 +4,6 @@ resource "kubernetes_namespace" "argocd" {
   }
 }
 
-locals {
-  hostnames = {
-    argocd  = "argocd.${var.domain_name}"
-    grafana = "grafana.${var.domain_name}"
-    ldap    = "ldap.${var.domain_name}"
-    hello   = "hello.${var.domain_name}"
-  }
-}
-
 resource "helm_release" "argocd" {
   name       = "argocd"
   repository = "https://argoproj.github.io/argo-helm"
@@ -47,7 +38,7 @@ resource "helm_release" "argocd" {
             "alb.ingress.kubernetes.io/scheme"          = "internet-facing"
             "alb.ingress.kubernetes.io/target-type"     = "ip"
             "alb.ingress.kubernetes.io/listen-ports"    = "[{\"HTTP\":80},{\"HTTPS\":443}]"
-            "alb.ingress.kubernetes.io/certificate-arn" = aws_acm_certificate_validation.argocd.certificate_arn
+            "alb.ingress.kubernetes.io/certificate-arn" = local.aws_outputs.argocd_certificate_arn
             "alb.ingress.kubernetes.io/ssl-redirect"    = "443"
           }
         }
@@ -56,8 +47,6 @@ resource "helm_release" "argocd" {
   ]
 
   depends_on = [
-    kubernetes_namespace.argocd,
-    aws_acm_certificate_validation.argocd,
-    helm_release.aws_load_balancer_controller
+    kubernetes_namespace.argocd
   ]
 }

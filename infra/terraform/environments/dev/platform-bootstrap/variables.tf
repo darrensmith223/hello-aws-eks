@@ -13,36 +13,6 @@ variable "name" {
   default = "practice-eks-dev"
 }
 
-variable "kubernetes_version" {
-  type    = string
-  default = "1.33"
-}
-
-variable "vpc_cidr" {
-  type    = string
-  default = "10.20.0.0/16"
-}
-
-variable "node_instance_types" {
-  type    = list(string)
-  default = ["t3.large"]
-}
-
-variable "node_min_size" {
-  type    = number
-  default = 1
-}
-
-variable "node_desired_size" {
-  type    = number
-  default = 2
-}
-
-variable "node_max_size" {
-  type    = number
-  default = 3
-}
-
 variable "aws_load_balancer_controller_chart_version" {
   description = "Helm chart version for the AWS Load Balancer Controller."
   type        = string
