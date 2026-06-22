@@ -113,7 +113,7 @@ foreach ($layer in @(
     @{ Name = "platform-dns"; Path = $DnsDir }
 )) {
     Run-Step "Terraform init - $($layer.Name)" {
-        terraform "-chdir=$($layer.Path)" init -reconfigure
+        terraform "-chdir=$($layer.Path)" init -reconfigure -backend-config="backend.hcl"
     }
 }
 

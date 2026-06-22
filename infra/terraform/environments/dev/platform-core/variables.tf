@@ -1,16 +1,19 @@
 variable "region" {
-  type    = string
-  default = "us-east-1"
+  description = "AWS region."
+  type        = string
+  default     = "us-east-1"
 }
 
 variable "environment" {
-  type    = string
-  default = "dev"
+  description = "Environment name (e.g. dev, staging, prod)."
+  type        = string
+  default     = "dev"
 }
 
 variable "name" {
-  type    = string
-  default = "practice-eks-dev"
+  description = "Base name for project resources."
+  type        = string
+  default     = "practice-eks-dev"
 }
 
 variable "aws_load_balancer_controller_chart_version" {
@@ -21,10 +24,5 @@ variable "aws_load_balancer_controller_chart_version" {
 
 variable "domain_name" {
   description = "Base DNS domain for this environment."
-  type        = string
-}
-
-variable "gitops_repo_url" {
-  description = "Git repository URL containing ArgoCD platform manifests."
   type        = string
 }

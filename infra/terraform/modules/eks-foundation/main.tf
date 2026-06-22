@@ -27,6 +27,9 @@ module "vpc" {
   public_subnets  = [for k, az in local.azs : cidrsubnet(var.vpc_cidr, 4, k + 8)]
 
   enable_nat_gateway = true
+  # single_nat_gateway saves cost in dev/test but creates a single point of
+  # failure: if the NAT gateway's AZ goes down, all private subnets lose
+  # outbound connectivity. Set to false (one NAT per AZ) for staging/prod.
   single_nat_gateway = true
 
   enable_dns_hostnames = true
@@ -80,7 +83,7 @@ module "eks" {
   endpoint_public_access  = true
   endpoint_private_access = true
 
-  authentication_mode = "API_AND_CONFIG_MAP"
+  authentication_mode                      = "API_AND_CONFIG_MAP"
   enable_cluster_creator_admin_permissions = true
   enable_irsa                              = true
 
@@ -97,20 +100,23 @@ module "eks" {
 
   addons = {
     vpc-cni = {
-      most_recent    = true
+      # Pinned versions prevent unexpected changes on `terraform apply`.
+      # Update these intentionally when upgrading the cluster.
+      # To find the latest: aws eks describe-addon-versions --kubernetes-version 1.32 --addon-name vpc-cni
+      addon_version  = "v1.19.2-eksbuild.5"
       before_compute = true
     }
 
     kube-proxy = {
-      most_recent = true
+      addon_version = "v1.32.3-eksbuild.2"
     }
 
     coredns = {
-      most_recent = true
+      addon_version = "v1.11.4-eksbuild.2"
     }
 
     aws-ebs-csi-driver = {
-      most_recent = true
+      addon_version = "v1.41.0-eksbuild.1"
 
       pod_identity_association = [
         {
@@ -121,7 +127,7 @@ module "eks" {
     }
 
     eks-pod-identity-agent = {
-      most_recent = true
+      addon_version = "v1.3.4-eksbuild.1"
     }
   }
 
@@ -134,7 +140,7 @@ module "eks" {
 
       ami_type = "AL2023_x86_64_STANDARD"
 
-      instance_types = var.node_instance_types
+      instance_types             = var.node_instance_types
       use_custom_launch_template = false
 
       min_size     = var.node_min_size
@@ -160,8 +166,6 @@ module "eks" {
     "audit",
     "authenticator",
     "controllerManager",
-    "scheduler"
+    "scheduler",
   ]
-
-  
 }

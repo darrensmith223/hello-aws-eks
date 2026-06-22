@@ -1,32 +1,6 @@
-resource "kubernetes_manifest" "aws_secrets_manager_cluster_store" {
-  manifest = {
-    apiVersion = "external-secrets.io/v1"
-    kind       = "ClusterSecretStore"
-
-    metadata = {
-      name = "aws-secrets-manager"
-    }
-
-    spec = {
-      provider = {
-        aws = {
-          service = "SecretsManager"
-          region  = var.region
-
-          auth = {
-            jwt = {
-              serviceAccountRef = {
-                name      = "external-secrets"
-                namespace = "external-secrets"
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-}
+# The ClusterSecretStore "aws-secrets-manager" is managed by ArgoCD via
+# infra/k8s/platform/cluster-secret-store.yaml — do NOT re-create it here.
+# Terraform only manages the ExternalSecret that populates the ArgoCD repo secret.
 
 resource "kubernetes_manifest" "argocd_repo_external_secret" {
   manifest = {
@@ -42,7 +16,7 @@ resource "kubernetes_manifest" "argocd_repo_external_secret" {
       refreshInterval = "1h"
 
       secretStoreRef = {
-        name = kubernetes_manifest.aws_secrets_manager_cluster_store.manifest.metadata.name
+        name = "aws-secrets-manager"
         kind = "ClusterSecretStore"
       }
 
@@ -84,8 +58,4 @@ resource "kubernetes_manifest" "argocd_repo_external_secret" {
       ]
     }
   }
-
-  depends_on = [
-    kubernetes_manifest.aws_secrets_manager_cluster_store
-  ]
 }

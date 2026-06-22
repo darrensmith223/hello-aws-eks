@@ -14,9 +14,9 @@ variable "environment" {
 }
 
 variable "kubernetes_version" {
-  description = "EKS Kubernetes version."
+  description = "EKS Kubernetes version. Must be set explicitly by the caller — no default to prevent silent drift across environments."
   type        = string
-  default     = "1.33"
+  # No default: callers must always pin this intentionally.
 }
 
 variable "vpc_cidr" {
@@ -38,18 +38,36 @@ variable "node_instance_types" {
 }
 
 variable "node_min_size" {
-  type    = number
-  default = 1
+  description = "Minimum number of nodes in the default managed node group."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.node_min_size >= 1
+    error_message = "node_min_size must be at least 1."
+  }
 }
 
 variable "node_desired_size" {
-  type    = number
-  default = 2
+  description = "Desired number of nodes in the default managed node group."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.node_desired_size >= var.node_min_size
+    error_message = "node_desired_size must be >= node_min_size."
+  }
 }
 
 variable "node_max_size" {
-  type    = number
-  default = 3
+  description = "Maximum number of nodes in the default managed node group."
+  type        = number
+  default     = 3
+
+  validation {
+    condition     = var.node_max_size >= var.node_desired_size
+    error_message = "node_max_size must be >= node_desired_size."
+  }
 }
 
 variable "tags" {

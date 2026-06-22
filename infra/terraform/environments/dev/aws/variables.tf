@@ -1,46 +1,55 @@
 variable "region" {
-  type    = string
-  default = "us-east-1"
+  description = "AWS region."
+  type        = string
+  default     = "us-east-1"
 }
 
 variable "environment" {
-  type    = string
-  default = "dev"
+  description = "Environment name (e.g. dev, staging, prod)."
+  type        = string
+  default     = "dev"
 }
 
 variable "name" {
-  type    = string
-  default = "practice-eks-dev"
+  description = "Base name for project resources."
+  type        = string
+  default     = "practice-eks-dev"
 }
 
 variable "kubernetes_version" {
-  type    = string
-  default = "1.32"
+  description = "EKS Kubernetes version."
+  type        = string
+  default     = "1.32"
 }
 
 variable "vpc_cidr" {
-  type    = string
-  default = "10.20.0.0/16"
+  description = "CIDR block for the VPC."
+  type        = string
+  default     = "10.20.0.0/16"
 }
 
 variable "node_instance_types" {
-  type    = list(string)
-  default = ["t3.large"]
+  description = "EC2 instance types for the default managed node group."
+  type        = list(string)
+  default     = ["t3.large"]
 }
 
 variable "node_min_size" {
-  type    = number
-  default = 1
+  description = "Minimum number of nodes in the default managed node group."
+  type        = number
+  default     = 1
 }
 
 variable "node_desired_size" {
-  type    = number
-  default = 2
+  description = "Desired number of nodes in the default managed node group."
+  type        = number
+  default     = 2
 }
 
 variable "node_max_size" {
-  type    = number
-  default = 3
+  description = "Maximum number of nodes in the default managed node group."
+  type        = number
+  default     = 3
 }
 
 variable "domain_name" {
