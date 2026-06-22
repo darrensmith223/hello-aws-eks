@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hello-app
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/darrensmith223/hello-k8s-app.git
+    targetRevision: main
+    path: k8s/overlays/eks
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hello
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+
+  revisionHistoryLimit: 5
