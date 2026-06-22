@@ -26,3 +26,9 @@ variable "domain_name" {
   description = "Base DNS domain for this environment."
   type        = string
 }
+
+variable "external_dns_chart_version" {
+  description = "Helm chart version for ExternalDNS."
+  type        = string
+  default     = "1.21.1"
+}

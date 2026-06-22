@@ -61,3 +61,15 @@ output "vault_kms_key_arn" {
 output "vault_role_arn" {
   value = module.vault_irsa.iam_role_arn
 }
+
+output "external_dns_role_arn" {
+  value = module.external_dns_irsa.iam_role_arn
+}
+
+output "route53_zone_id" {
+  value = data.aws_route53_zone.selected.zone_id
+}
+
+output "route53_zone_arn" {
+  value = data.aws_route53_zone.selected.arn
+}
