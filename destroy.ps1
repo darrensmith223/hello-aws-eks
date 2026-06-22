@@ -10,6 +10,7 @@ $AwsDir = "infra/terraform/environments/$Environment/aws"
 $CoreDir = "infra/terraform/environments/$Environment/platform-core"
 $ServicesDir = "infra/terraform/environments/$Environment/platform-services"
 $BootstrapPlatformDir = "infra/terraform/environments/$Environment/platform-bootstrap"
+$DnsDir = "infra/terraform/environments/$Environment/platform-dns"
 
 function Step($Message) {
     Write-Host "`n=== $Message ===" -ForegroundColor Cyan
@@ -47,10 +48,13 @@ function Wait-Until($Description, [scriptblock]$Check, $TimeoutSeconds = 600, $S
     throw "Timed out waiting for $Description"
 }
 
-function Terraform-Destroy-Layer($Name, $Path, [bool]$ClusterExists) {
+function Terraform-Destroy-Layer($Name, $Path, [bool]$ClusterExists, [bool]$Refresh = $true) {
     Step "Destroying $Name"
+
+    $refreshArg = if ($Refresh) { "-refresh=true" } else { "-refresh=false" }
+
     $destroy = Run-AllowFailure {
-        terraform "-chdir=$Path" destroy -auto-approve
+        terraform "-chdir=$Path" destroy -auto-approve $refreshArg
     }
 
     if ($destroy.ExitCode -ne 0) {
@@ -74,14 +78,14 @@ if ($CallerArn -notlike "*$ExpectedArnFragment*") {
     throw "Refusing to destroy. Expected AWS identity containing '$ExpectedArnFragment', but got '$CallerArn'."
 }
 
-foreach ($dir in @($AwsDir, $CoreDir, $ServicesDir, $BootstrapPlatformDir)) {
+foreach ($dir in @($AwsDir, $CoreDir, $ServicesDir, $BootstrapPlatformDir, $DnsDir)) {
     if (-not (Test-Path $dir)) {
         throw "Required Terraform directory not found: $dir"
     }
 }
 
 Step "Initializing Terraform layers"
-foreach ($dir in @($BootstrapPlatformDir, $ServicesDir, $CoreDir, $AwsDir)) {
+foreach ($dir in @($DnsDir, $BootstrapPlatformDir, $ServicesDir, $CoreDir, $AwsDir)) {
     terraform "-chdir=$dir" init -reconfigure
 }
 
@@ -107,7 +111,13 @@ if ($ClusterExists) {
     Step "Updating kubeconfig"
     $Region = terraform "-chdir=$AwsDir" output -raw aws_region
     aws eks update-kubeconfig --name $ClusterName --region $Region
+}
 
+# DNS must be destroyed before Kubernetes ingresses/ALBs are removed.
+# refresh=false prevents Terraform from querying a now-missing ALB during partial cleanup scenarios.
+Terraform-Destroy-Layer "platform-dns" $DnsDir $ClusterExists $false
+
+if ($ClusterExists) {
     Step "Deleting ArgoCD Applications"
     $deleteApps = Run-AllowFailure {
         kubectl delete applications.argoproj.io --all -n argocd --ignore-not-found=true

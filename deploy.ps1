@@ -59,6 +59,7 @@ $AwsDir = "infra/terraform/environments/$Environment/aws"
 $CoreDir = "infra/terraform/environments/$Environment/platform-core"
 $ServicesDir = "infra/terraform/environments/$Environment/platform-services"
 $BootstrapPlatformDir = "infra/terraform/environments/$Environment/platform-bootstrap"
+$DnsDir = "infra/terraform/environments/$Environment/platform-dns"
 
 Require-Command terraform
 Require-Command aws
@@ -66,7 +67,7 @@ if (-not $SkipKubeconfig) {
     Require-Command kubectl
 }
 
-foreach ($dir in @($BootstrapDir, $AwsDir, $CoreDir, $ServicesDir, $BootstrapPlatformDir)) {
+foreach ($dir in @($BootstrapDir, $AwsDir, $CoreDir, $ServicesDir, $BootstrapPlatformDir, $DnsDir)) {
     if (-not (Test-Path $dir)) {
         throw "Required directory not found: $dir"
     }
@@ -108,7 +109,8 @@ foreach ($layer in @(
     @{ Name = "AWS"; Path = $AwsDir },
     @{ Name = "platform-core"; Path = $CoreDir },
     @{ Name = "platform-services"; Path = $ServicesDir },
-    @{ Name = "platform-bootstrap"; Path = $BootstrapPlatformDir }
+    @{ Name = "platform-bootstrap"; Path = $BootstrapPlatformDir },
+    @{ Name = "platform-dns"; Path = $DnsDir }
 )) {
     Run-Step "Terraform init - $($layer.Name)" {
         terraform "-chdir=$($layer.Path)" init -reconfigure
@@ -190,6 +192,10 @@ if (-not $SkipKubeconfig) {
 
 Run-Step "Terraform apply - platform-bootstrap" {
     terraform "-chdir=$BootstrapPlatformDir" apply -auto-approve
+}
+
+Run-Step "Terraform apply - platform-dns" {
+    terraform "-chdir=$DnsDir" apply -auto-approve
 }
 
 Write-Host ""
