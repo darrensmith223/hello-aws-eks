@@ -49,3 +49,15 @@ output "argocd_certificate_arn" {
 output "hostnames" {
   value = local.hostnames
 }
+
+output "vault_kms_key_id" {
+  value = aws_kms_key.vault_unseal.key_id
+}
+
+output "vault_kms_key_arn" {
+  value = aws_kms_key.vault_unseal.arn
+}
+
+output "vault_role_arn" {
+  value = module.vault_irsa.iam_role_arn
+}

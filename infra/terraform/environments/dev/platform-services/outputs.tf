@@ -9,3 +9,7 @@ output "argocd_namespace" {
 output "external_secrets_namespace" {
   value = kubernetes_namespace.external_secrets.metadata[0].name
 }
+
+output "vault_namespace" {
+  value = kubernetes_namespace.vault.metadata[0].name
+}

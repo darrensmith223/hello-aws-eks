@@ -76,6 +76,33 @@ Test-Step "ArgoCD platform-root app is synced/healthy" {
     kubectl get application platform-root -n argocd
 }
 
+
+Test-Step "Vault namespace exists" {
+    kubectl get namespace vault
+}
+
+Test-Step "Vault service account has IRSA annotation" {
+    kubectl get sa vault -n vault `
+        -o jsonpath="{.metadata.annotations.eks\.amazonaws\.com/role-arn}"
+}
+
+Test-Step "Vault KMS alias exists" {
+    aws kms describe-key `
+        --key-id alias/$ClusterName-vault-unseal `
+        --region $Region `
+        --profile $Profile `
+        --query "KeyMetadata.KeyState" `
+        --output text
+}
+
+Test-Step "Vault ArgoCD app exists" {
+    kubectl get application vault -n argocd
+}
+
+Test-Step "Vault pods exist" {
+    kubectl get pods -n vault
+}
+
 Test-Step "AWS Load Balancer Controller running" {
     kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller
 }
