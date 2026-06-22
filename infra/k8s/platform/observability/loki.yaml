@@ -19,6 +19,11 @@ spec:
           auth_enabled: false
           commonConfig:
             replication_factor: 1
+          storage:
+            type: filesystem
+          storage_config:
+            filesystem:
+              directory: /var/loki/chunks
 
         singleBinary:
           replicas: 1
