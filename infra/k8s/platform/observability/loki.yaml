@@ -7,6 +7,9 @@ metadata:
     argocd.argoproj.io/sync-wave: "10"
 spec:
   project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: logging
   source:
     repoURL: https://grafana.github.io/helm-charts
     chart: loki
@@ -21,6 +24,10 @@ spec:
             replication_factor: 1
           storage:
             type: filesystem
+            bucketNames:
+              chunks: chunks
+              ruler: ruler
+              admin: admin
           storage_config:
             filesystem:
               directory: /var/loki/chunks
@@ -34,13 +41,15 @@ spec:
 
         read:
           replicas: 0
+
         write:
           replicas: 0
+
         backend:
           replicas: 0
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: logging
+
+        gateway:
+          enabled: false
   syncPolicy:
     automated:
       prune: true
