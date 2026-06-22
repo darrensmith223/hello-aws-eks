@@ -5,3 +5,4 @@ resources:
   - vault
   - observability
   - ldap
+  - apps
