@@ -6,11 +6,13 @@ $ErrorActionPreference = "Stop"
 
 $ExpectedArnFragment = "user/darren-iam"
 $ClusterName = "practice-eks-dev"
+
 $AwsDir = "infra/terraform/environments/$Environment/aws"
 $CoreDir = "infra/terraform/environments/$Environment/platform-core"
 $ServicesDir = "infra/terraform/environments/$Environment/platform-services"
 $BootstrapPlatformDir = "infra/terraform/environments/$Environment/platform-bootstrap"
 $DnsDir = "infra/terraform/environments/$Environment/platform-dns"
+$BackendConfigRelative = "infra/terraform/environments/$Environment/backend.hcl"
 
 function Step($Message) {
     Write-Host "`n=== $Message ===" -ForegroundColor Cyan
@@ -48,6 +50,18 @@ function Wait-Until($Description, [scriptblock]$Check, $TimeoutSeconds = 600, $S
     throw "Timed out waiting for $Description"
 }
 
+function Terraform-Init-Layer($Name, $Path) {
+    Step "Initializing $Name"
+
+    terraform "-chdir=$Path" init `
+        -reconfigure `
+        "-backend-config=$BackendConfig"
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Name terraform init failed."
+    }
+}
+
 function Terraform-Destroy-Layer($Name, $Path, [bool]$ClusterExists, [bool]$Refresh = $true) {
     Step "Destroying $Name"
 
@@ -70,6 +84,7 @@ function Terraform-Destroy-Layer($Name, $Path, [bool]$ClusterExists, [bool]$Refr
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $Root
+$BackendConfig = Join-Path $Root $BackendConfigRelative
 
 Step "Validating AWS identity"
 $CallerArn = aws sts get-caller-identity --query Arn --output text
@@ -84,10 +99,15 @@ foreach ($dir in @($AwsDir, $CoreDir, $ServicesDir, $BootstrapPlatformDir, $DnsD
     }
 }
 
-Step "Initializing Terraform layers"
-foreach ($dir in @($DnsDir, $BootstrapPlatformDir, $ServicesDir, $CoreDir, $AwsDir)) {
-    terraform "-chdir=$dir" init -reconfigure
+if (-not (Test-Path $BackendConfig)) {
+    throw "Required Terraform backend config not found: $BackendConfig"
 }
+
+Terraform-Init-Layer "platform-dns" $DnsDir
+Terraform-Init-Layer "platform-bootstrap" $BootstrapPlatformDir
+Terraform-Init-Layer "platform-services" $ServicesDir
+Terraform-Init-Layer "platform-core" $CoreDir
+Terraform-Init-Layer "aws" $AwsDir
 
 Step "Checking EKS cluster"
 $ClusterExists = $false
@@ -113,8 +133,6 @@ if ($ClusterExists) {
     aws eks update-kubeconfig --name $ClusterName --region $Region
 }
 
-# DNS must be destroyed before Kubernetes ingresses/ALBs are removed.
-# refresh=false prevents Terraform from querying a now-missing ALB during partial cleanup scenarios.
 Terraform-Destroy-Layer "platform-dns" $DnsDir $ClusterExists $false
 
 if ($ClusterExists) {
