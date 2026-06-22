@@ -63,6 +63,7 @@ $DnsDir = "infra/terraform/environments/$Environment/platform-dns"
 
 Require-Command terraform
 Require-Command aws
+Require-Command helm
 if (-not $SkipKubeconfig) {
     Require-Command kubectl
 }
@@ -143,6 +144,11 @@ if (-not $SkipKubeconfig) {
     }
 }
 
+Run-Step "Adding Helm repositories" {
+    helm repo add external-dns https://kubernetes-sigs.github.io/external-dns/ --force-update
+    helm repo update
+}
+
 Run-Step "Terraform apply - platform-core" {
     terraform "-chdir=$CoreDir" apply -auto-approve
 }
@@ -150,6 +156,10 @@ Run-Step "Terraform apply - platform-core" {
 if (-not $SkipKubeconfig) {
     Run-Step "Waiting for AWS Load Balancer Controller rollout" {
         kubectl rollout status deployment/aws-load-balancer-controller -n kube-system --timeout=5m
+    }
+
+    Run-Step "Waiting for ExternalDNS rollout" {
+        kubectl rollout status deployment/external-dns -n external-dns --timeout=5m
     }
 
     Wait-Until "AWS Load Balancer Controller webhook endpoints" {
