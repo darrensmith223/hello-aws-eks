@@ -28,7 +28,7 @@ platform      →  All Kubernetes resources (namespaces, service accounts,
                  Helm releases, ArgoCD Applications, DNS record)
 ```
 
-The `platform` stack reads the `aws` stack's outputs via remote state and manages everything Kubernetes-side in one apply. This removes the sequencing overhead of the previous four separate K8s stacks while keeping the AWS and Kubernetes blast radii cleanly separated.
+The `platform` stack reads the `aws` stack's outputs via remote state and manages everything Kubernetes-side in one apply.
 
 ---
 
@@ -59,11 +59,7 @@ This stores a `username` + `password` (personal access token) at `dev/argocd/rep
 .\deploy.ps1
 ```
 
-This runs all three stacks in order. To plan without applying:
-
-```powershell
-.\deploy.ps1 -PlanOnly
-```
+This runs all three stacks in order.
 
 ### 3. Validate
 
