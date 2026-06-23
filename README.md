@@ -1,18 +1,34 @@
 # EKS Migration Starter
 
-This is the first IaC milestone for migrating a local Kubernetes environment to AWS EKS.
+This repo provisions a production-ready AWS EKS cluster using a two-stack Terraform architecture, GitOps via ArgoCD, and a full observability and secrets platform.
 
-It creates the foundation:
+**What it creates:**
 
 - VPC with public/private subnets and NAT gateway (single NAT — dev only)
-- EKS cluster with managed node group
-- Core EKS add-ons (vpc-cni, kube-proxy, coredns, ebs-csi, pod-identity-agent)
-- IRSA/OIDC support
-- AWS Load Balancer Controller
-- ArgoCD (with HTTPS via ACM + Route53)
+- EKS cluster with managed node group (API-only auth mode)
+- Core EKS add-ons: vpc-cni, kube-proxy, coredns, aws-ebs-csi-driver, eks-pod-identity-agent
+- IRSA/OIDC for all workloads requiring AWS API access
+- AWS Load Balancer Controller + ExternalDNS
+- ArgoCD (HTTPS via ACM + Route53)
 - External Secrets Operator (backed by AWS Secrets Manager)
+- Vault with KMS auto-unseal and Raft HA storage
+- Grafana + Loki (S3-backed) + Alloy log collector
+- LDAP (389ds) with persistent storage
 
-It intentionally does **not** install cert-manager, Vault, LDAP, monitoring, logging, or application workloads yet.
+---
+
+## Architecture
+
+Two Terraform stacks replace the previous five-stack layout:
+
+```
+bootstrap     →  S3 state bucket + DynamoDB lock table
+aws           →  VPC, EKS, IRSA roles, ACM cert, Route53 zone, Loki S3 bucket
+platform      →  All Kubernetes resources (namespaces, service accounts,
+                 Helm releases, ArgoCD Applications, DNS record)
+```
+
+The `platform` stack reads the `aws` stack's outputs via remote state and manages everything Kubernetes-side in one apply. This removes the sequencing overhead of the previous four separate K8s stacks while keeping the AWS and Kubernetes blast radii cleanly separated.
 
 ---
 
@@ -21,48 +37,76 @@ It intentionally does **not** install cert-manager, Vault, LDAP, monitoring, log
 - [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html) configured with a `terraform` profile
 - [Terraform](https://developer.hashicorp.com/terraform/downloads) >= 1.8.0
 - `kubectl` installed
+- `helm` installed
 
 ---
 
-## Deployment Order
+## First-time setup
 
-There are five Terraform stacks. They must be applied in order since later stacks read remote state from earlier ones.
+### 1. Store the Git repo credential
 
-```
-1. bootstrap          (S3 state bucket + DynamoDB lock table)
-2. environments/dev/aws              (VPC + EKS cluster + IRSA roles + ACM cert)
-3. environments/dev/platform-services  (ArgoCD + External Secrets helm installs)
-4. environments/dev/platform-core      (AWS Load Balancer Controller)
-5. environments/dev/platform-bootstrap (ArgoCD Application CRs + repo secret)
-6. environments/dev/platform-dns       (Route53 CNAME → ALB)
+ArgoCD uses a credential stored in AWS Secrets Manager to pull this repo. Run this once before deploying:
+
+```powershell
+.\scripts\create-repo-keys.ps1
 ```
 
-### Shared backend config
+This stores a `username` + `password` (personal access token) at `dev/argocd/repo/hello-aws-eks` in AWS Secrets Manager. The deploy script reads this secret and injects it as a Kubernetes Secret — no ExternalSecret chicken-and-egg problem.
 
-All dev stacks share a single `backend.hcl` to avoid repeating the bucket name in every file.
-Pass it at `init` time:
+### 2. Deploy
+
+```powershell
+.\deploy.ps1
+```
+
+This runs all three stacks in order. To plan without applying:
+
+```powershell
+.\deploy.ps1 -PlanOnly
+```
+
+### 3. Validate
+
+```powershell
+.\scripts\validate-deploy.ps1
+```
+
+---
+
+## Manual deployment
+
+All stacks share a single `backend.hcl`:
 
 ```bash
-cd infra/terraform/environments/dev/aws
-terraform init -backend-config=../backend.hcl
-terraform plan
+# bootstrap (run once)
+cd infra/terraform/bootstrap
+terraform init
 terraform apply
-```
 
-Repeat for each stack in the order above, adjusting the directory name.
+# aws stack
+cd ../environments/dev/aws
+terraform init -backend-config=../backend.hcl
+terraform apply
+
+# platform stack
+cd ../platform
+terraform init -backend-config=../backend.hcl
+terraform apply -var "state_bucket=<your-bucket-name>"
+```
 
 ---
 
-## PowerShell scripts
+## Scripts
 
 | Script | Purpose |
 |--------|---------|
-| `.\deploy.ps1` | Applies all stacks in order |
-| `.\deploy.ps1 -PlanOnly` | Plan only |
-| `.\destroy.ps1` | Destroys all stacks in reverse order |
-| `.\scripts\create-repo-keys.ps1` | Creates GitHub repo credentials in AWS Secrets Manager |
-| `.\scripts\validate-deploy.ps1` | Validates a successful deployment |
-| `.\scripts\validate-destroy.ps1` | Validates a clean destroy |
+| `.\deploy.ps1` | Apply all stacks in order |
+| `.\deploy.ps1 -PlanOnly` | Plan only (stops after aws plan) |
+| `.\deploy.ps1 -SkipBootstrap` | Skip bootstrap stack (already applied) |
+| `.\destroy.ps1` | Destroy all stacks in reverse order |
+| `.\scripts\create-repo-keys.ps1` | Store GitHub credentials in AWS Secrets Manager |
+| `.\scripts\validate-deploy.ps1` | Validate a successful deployment |
+| `.\scripts\validate-destroy.ps1` | Validate a clean destroy |
 
 ---
 
@@ -77,8 +121,24 @@ kubectl get storageclass
 
 ---
 
-## Notes
+## Key design decisions
 
-- **Single NAT gateway**: costs less in dev but is a single point of failure. Set `single_nat_gateway = false` in `modules/eks-foundation/main.tf` for staging/prod.
-- **EKS addon versions**: pinned explicitly in the module. Update them intentionally when upgrading the cluster. Find latest versions with `aws eks describe-addon-versions --kubernetes-version <version> --addon-name <name>`.
-- **ClusterSecretStore**: managed solely by ArgoCD via `infra/k8s/platform/cluster-secret-store.yaml`. Do not recreate it in Terraform.
+**EKS auth mode: API only.** The cluster uses `authentication_mode = "API"` (EKS access entries) rather than `API_AND_CONFIG_MAP`. Access entries are Terraform-managed, auditable, and don't require ConfigMap manipulation. See the [AWS docs](https://docs.aws.amazon.com/eks/latest/userguide/access-entries.html) for migration guidance if coming from an existing cluster.
+
+**gp3 as sole default StorageClass.** EKS ships with `gp2` marked as default. This repo creates `gp3` as the default and patches `gp2` to remove its default annotation, preventing the ambiguous-PVC-binding failure that occurs when two defaults exist.
+
+**Loki S3 backend.** Loki uses an S3 bucket (provisioned in the `aws` stack) instead of the default filesystem backend. Logs survive pod restarts and the setup can scale to multiple replicas. A 30-day lifecycle rule keeps storage costs in check for dev.
+
+**ArgoCD repo secret via direct Kubernetes Secret.** The repo credential is read from AWS Secrets Manager at `terraform apply` time and written as a plain Kubernetes Secret. This avoids the previous ExternalSecret approach, which required ArgoCD to already be syncing before it could read its own repo credential.
+
+**Single `platform` stack.** The previous four Kubernetes stacks (`platform-core`, `platform-services`, `platform-bootstrap`, `platform-dns`) are merged into one. Ordering within the stack is handled by Terraform `depends_on` chains, not by separate `terraform apply` invocations.
+
+**No hardcoded bucket names in scripts.** The deploy and destroy scripts parse the bucket name from `backend.hcl` at runtime. The only place the bucket name lives is `backend.hcl` and `terraform.tfvars`.
+
+**Single NAT gateway (dev only).** Saves cost in dev but is a single point of failure. Set `single_nat_gateway = false` in `modules/eks-foundation/main.tf` for staging/prod.
+
+**EKS addon versions are pinned.** Update them intentionally when upgrading the cluster. Find latest versions with:
+
+```bash
+aws eks describe-addon-versions --kubernetes-version 1.32 --addon-name <name>
+```
