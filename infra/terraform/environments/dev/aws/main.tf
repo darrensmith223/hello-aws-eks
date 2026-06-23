@@ -6,6 +6,7 @@ module "eks_foundation" {
   environment        = var.environment
   kubernetes_version = var.kubernetes_version
   vpc_cidr           = var.vpc_cidr
+  az_count           = var.az_count
 
   node_instance_types = var.node_instance_types
   node_min_size       = var.node_min_size

@@ -18,6 +18,10 @@ spec:
       values: |
         deploymentMode: SingleBinary
 
+        serviceAccount:
+          create: false
+          name: loki
+
         loki:
           auth_enabled: false
           commonConfig:
@@ -26,20 +30,22 @@ spec:
             configs:
               - from: "2024-04-01"
                 store: tsdb
-                object_store: filesystem
+                object_store: s3
                 schema: v13
                 index:
                   prefix: loki_index_
                   period: 24h
           storage:
-            type: filesystem
+            # Bucket name injected at deploy time via the ArgoCD Application
+            # values override; see deploy.ps1 which patches this field from
+            # the aws stack's loki_bucket_name output.
             bucketNames:
-              chunks: chunks
-              ruler: ruler
-              admin: admin
-          storage_config:
-            filesystem:
-              directory: /var/loki/chunks
+              chunks: practice-eks-dev-loki-logs
+              ruler:  practice-eks-dev-loki-logs
+            type: s3
+            s3:
+              region: us-east-1
+              # IRSA provides credentials — no static keys needed.
 
         singleBinary:
           replicas: 1
@@ -64,4 +70,4 @@ spec:
       prune: true
       selfHeal: true
     syncOptions:
-      - CreateNamespace=true
+      - CreateNamespace=false

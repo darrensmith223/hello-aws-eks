@@ -83,7 +83,10 @@ module "eks" {
   endpoint_public_access  = true
   endpoint_private_access = true
 
-  authentication_mode                      = "API_AND_CONFIG_MAP"
+  # API-only mode: access is managed exclusively via EKS access entries,
+  # which are auditable and fully Terraform-managed. The aws-auth ConfigMap
+  # is no longer used or required.
+  authentication_mode                      = "API"
   enable_cluster_creator_admin_permissions = true
   enable_irsa                              = true
 

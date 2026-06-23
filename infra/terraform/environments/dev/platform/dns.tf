@@ -10,14 +10,24 @@ data "aws_lb" "argocd" {
   tags = {
     "ingress.k8s.aws/stack" = "argocd/argocd-server"
   }
+
+  depends_on = [helm_release.argocd]
 }
 
+# Use an A alias record rather than a CNAME. ALB hostnames are always in
+# AWS-controlled zones, so an alias A record is the correct record type —
+# it is also exactly what ExternalDNS creates, which prevents a type conflict
+# if ExternalDNS has already registered the hostname before this apply runs.
 resource "aws_route53_record" "argocd" {
   zone_id = data.aws_route53_zone.selected.zone_id
   name    = local.hostnames.argocd
-  type    = "CNAME"
-  ttl     = 300
-  records = [data.aws_lb.argocd.dns_name]
+  type    = "A"
+
+  alias {
+    name                   = data.aws_lb.argocd.dns_name
+    zone_id                = data.aws_lb.argocd.zone_id
+    evaluate_target_health = true
+  }
 
   allow_overwrite = true
 }

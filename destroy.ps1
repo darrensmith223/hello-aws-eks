@@ -5,15 +5,11 @@ param(
 $ErrorActionPreference = "Stop"
 
 $ExpectedArnFragment = "user/darren-iam"
-$ClusterName = "practice-eks-dev"
-
-$AwsDir = "infra/terraform/environments/$Environment/aws"
-$CoreDir = "infra/terraform/environments/$Environment/platform-core"
-$ServicesDir = "infra/terraform/environments/$Environment/platform-services"
-$BootstrapPlatformDir = "infra/terraform/environments/$Environment/platform-bootstrap"
-$DnsDir = "infra/terraform/environments/$Environment/platform-dns"
-$BackendConfigRelative = "infra/terraform/environments/$Environment/backend.hcl"
-
+$AwsDir              = "infra/terraform/environments/$Environment/aws"
+$PlatformDir         = "infra/terraform/environments/$Environment/platform"
+$BackendConfig       = "infra/terraform/environments/$Environment/backend.hcl"
+$BackendConfigAbs    = (Resolve-Path $BackendConfig).Path
+a
 function Step($Message) {
     Write-Host "`n=== $Message ===" -ForegroundColor Cyan
 }
@@ -50,18 +46,6 @@ function Wait-Until($Description, [scriptblock]$Check, $TimeoutSeconds = 600, $S
     throw "Timed out waiting for $Description"
 }
 
-function Terraform-Init-Layer($Name, $Path) {
-    Step "Initializing $Name"
-
-    terraform "-chdir=$Path" init `
-        -reconfigure `
-        "-backend-config=$BackendConfig"
-
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Name terraform init failed."
-    }
-}
-
 function Terraform-Destroy-Layer($Name, $Path, [bool]$ClusterExists, [bool]$Refresh = $true) {
     Step "Destroying $Name"
 
@@ -84,7 +68,14 @@ function Terraform-Destroy-Layer($Name, $Path, [bool]$ClusterExists, [bool]$Refr
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $Root
-$BackendConfig = Join-Path $Root $BackendConfigRelative
+
+# Read config from backend.hcl to avoid any hardcoded values.
+if (-not (Test-Path $BackendConfig)) { throw "Backend config not found: $BackendConfig" }
+$StateBucket = (Get-Content $BackendConfig | Select-String 'bucket\s*=\s*"(.+)"').Matches[0].Groups[1].Value
+$ClusterName = (terraform "-chdir=$AwsDir" output -raw cluster_name 2>$null)
+if (-not $ClusterName) {
+    $ClusterName = (Get-Content "$AwsDir/terraform.tfvars" | Select-String 'name\s*=\s*"(.+)"').Matches[0].Groups[1].Value
+}
 
 Step "Validating AWS identity"
 $CallerArn = aws sts get-caller-identity --query Arn --output text
@@ -93,21 +84,14 @@ if ($CallerArn -notlike "*$ExpectedArnFragment*") {
     throw "Refusing to destroy. Expected AWS identity containing '$ExpectedArnFragment', but got '$CallerArn'."
 }
 
-foreach ($dir in @($AwsDir, $CoreDir, $ServicesDir, $BootstrapPlatformDir, $DnsDir)) {
-    if (-not (Test-Path $dir)) {
-        throw "Required Terraform directory not found: $dir"
-    }
+foreach ($dir in @($AwsDir, $PlatformDir)) {
+    if (-not (Test-Path $dir)) { throw "Required Terraform directory not found: $dir" }
 }
 
-if (-not (Test-Path $BackendConfig)) {
-    throw "Required Terraform backend config not found: $BackendConfig"
+Step "Initializing Terraform layers"
+foreach ($dir in @($PlatformDir, $AwsDir)) {
+    terraform "-chdir=$dir" init -reconfigure "-backend-config=$BackendConfigAbs"
 }
-
-Terraform-Init-Layer "platform-dns" $DnsDir
-Terraform-Init-Layer "platform-bootstrap" $BootstrapPlatformDir
-Terraform-Init-Layer "platform-services" $ServicesDir
-Terraform-Init-Layer "platform-core" $CoreDir
-Terraform-Init-Layer "aws" $AwsDir
 
 Step "Checking EKS cluster"
 $ClusterExists = $false
@@ -131,11 +115,7 @@ if ($ClusterExists) {
     Step "Updating kubeconfig"
     $Region = terraform "-chdir=$AwsDir" output -raw aws_region
     aws eks update-kubeconfig --name $ClusterName --region $Region
-}
 
-Terraform-Destroy-Layer "platform-dns" $DnsDir $ClusterExists $false
-
-if ($ClusterExists) {
     Step "Deleting ArgoCD Applications"
     $deleteApps = Run-AllowFailure {
         kubectl delete applications.argoproj.io --all -n argocd --ignore-not-found=true
@@ -149,9 +129,8 @@ if ($ClusterExists) {
     if ($deleteIngresses.ExitCode -ne 0) { Warn "Could not delete ingresses. Continuing." }
 }
 
-Terraform-Destroy-Layer "platform-bootstrap" $BootstrapPlatformDir $ClusterExists
-Terraform-Destroy-Layer "platform-services" $ServicesDir $ClusterExists
-Terraform-Destroy-Layer "platform-core" $CoreDir $ClusterExists
+# Platform destroy (refresh=false for DNS portion since ALBs may already be gone)
+Terraform-Destroy-Layer "platform" $PlatformDir $ClusterExists $false
 
 Step "Detecting VPC from AWS Terraform state"
 $VpcId = $null

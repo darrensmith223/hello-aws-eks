@@ -28,6 +28,12 @@ variable "vpc_cidr" {
   default     = "10.20.0.0/16"
 }
 
+variable "az_count" {
+  description = "Number of availability zones to use."
+  type        = number
+  default     = 2
+}
+
 variable "node_instance_types" {
   description = "EC2 instance types for the default managed node group."
   type        = list(string)

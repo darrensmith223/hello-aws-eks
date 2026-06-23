@@ -1,3 +1,6 @@
+# The IRSA role ARN is read from the aws stack's remote state output.
+# The service account is co-located here with the Helm release so that
+# adding or changing this component only requires touching one file.
 resource "kubernetes_service_account" "aws_load_balancer_controller" {
   metadata {
     name      = "aws-load-balancer-controller"
@@ -47,7 +50,5 @@ resource "helm_release" "aws_load_balancer_controller" {
     value = kubernetes_service_account.aws_load_balancer_controller.metadata[0].name
   }
 
-  depends_on = [
-    kubernetes_service_account.aws_load_balancer_controller
-  ]
+  depends_on = [kubernetes_service_account.aws_load_balancer_controller]
 }

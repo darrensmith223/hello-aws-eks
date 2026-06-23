@@ -73,3 +73,10 @@ output "route53_zone_id" {
 output "route53_zone_arn" {
   value = data.aws_route53_zone.selected.arn
 }
+output "loki_bucket_name" {
+  value = aws_s3_bucket.loki.id
+}
+
+output "loki_role_arn" {
+  value = module.loki_irsa.iam_role_arn
+}
