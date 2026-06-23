@@ -9,7 +9,7 @@ $AwsDir              = "infra/terraform/environments/$Environment/aws"
 $PlatformDir         = "infra/terraform/environments/$Environment/platform"
 $BackendConfig       = "infra/terraform/environments/$Environment/backend.hcl"
 $BackendConfigAbs    = (Resolve-Path $BackendConfig).Path
-a
+
 function Step($Message) {
     Write-Host "`n=== $Message ===" -ForegroundColor Cyan
 }
