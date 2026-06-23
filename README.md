@@ -98,15 +98,15 @@ terraform apply -var "state_bucket=<your-bucket-name>"
 
 ## Scripts
 
-| Script | Purpose |
-|--------|---------|
-| `.\deploy.ps1` | Apply all stacks in order |
-| `.\deploy.ps1 -PlanOnly` | Plan only (stops after aws plan) |
-| `.\deploy.ps1 -SkipBootstrap` | Skip bootstrap stack (already applied) |
-| `.\destroy.ps1` | Destroy all stacks in reverse order |
-| `.\scripts\create-repo-keys.ps1` | Store GitHub credentials in AWS Secrets Manager |
-| `.\scripts\validate-deploy.ps1` | Validate a successful deployment |
-| `.\scripts\validate-destroy.ps1` | Validate a clean destroy |
+| Script                            | Purpose                                           |
+|--------                           |---------                                          |
+| `.\deploy.ps1`                    | Apply all stacks in order                         |
+| `.\deploy.ps1 -PlanOnly`          | Plan only (stops after aws plan)                  |
+| `.\deploy.ps1 -SkipBootstrap`     | Skip bootstrap stack (already applied)            |
+| `.\destroy.ps1`                   | Destroy all stacks in reverse order               |
+| `.\scripts\create-repo-keys.ps1`  | Store GitHub credentials in AWS Secrets Manager   |
+| `.\scripts\validate-deploy.ps1`   | Validate a successful deployment                  |
+| `.\scripts\validate-destroy.ps1`  | Validate a clean destroy                          |
 
 ---
 
