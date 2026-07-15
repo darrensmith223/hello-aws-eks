@@ -5,6 +5,10 @@ param(
     [switch]$SkipKubeconfig
 )
 
+$env:AWS_PROFILE = "terraform"
+Write-Host "Using AWS profile: $env:AWS_PROFILE"
+aws sts get-caller-identity
+
 $ErrorActionPreference = "Stop"
 
 function Require-Command($Name) {

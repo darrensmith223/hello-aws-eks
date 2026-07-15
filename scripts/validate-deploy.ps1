@@ -107,6 +107,34 @@ Test-Step "AWS Load Balancer Controller running" {
     kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller
 }
 
+Test-Step "Rancher ArgoCD app exists" {
+    kubectl get application rancher -n argocd
+}
+
+Test-Step "Rancher rollout is available" {
+    kubectl rollout status deployment/rancher -n cattle-system --timeout=10m
+}
+
+Test-Step "Rancher hostname resolves" {
+    nslookup "rancher.$DomainName"
+}
+
+Test-Step "Longhorn ArgoCD app exists" {
+    kubectl get application longhorn -n argocd
+}
+
+Test-Step "Longhorn manager DaemonSet is available" {
+    kubectl rollout status daemonset/longhorn-manager -n longhorn-system --timeout=10m
+}
+
+Test-Step "Longhorn StorageClass exists and gp3 remains default" {
+    kubectl get storageclass longhorn
+    $defaultClass = kubectl get storageclass -o jsonpath='{range .items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")]}{.metadata.name}{"\n"}{end}'
+    if (($defaultClass | Out-String).Trim() -ne "gp3") {
+        throw "Expected gp3 to be the sole default StorageClass, got: $defaultClass"
+    }
+}
+
 Test-Step "ArgoCD hostname resolves" {
     nslookup "argocd.$DomainName"
 }

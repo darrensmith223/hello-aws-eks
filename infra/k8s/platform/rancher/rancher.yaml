@@ -1,0 +1,40 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rancher
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cattle-system
+  source:
+    repoURL: https://releases.rancher.com/server-charts/stable
+    chart: rancher
+    targetRevision: 2.14.3
+    helm:
+      values: |
+        hostname: rancher.ddsprojects.link
+
+        # TLS terminates at the AWS Application Load Balancer. The Rancher
+        # chart ingress is disabled because a separate ALB-specific Ingress is
+        # managed next to this Application.
+        tls: external
+        ingress:
+          enabled: false
+
+        # Dynamically chooses 1-3 replicas according to available nodes.
+        replicas: -1
+        antiAffinity: preferred
+
+        auditLog:
+          enabled: true
+          level: 1
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false

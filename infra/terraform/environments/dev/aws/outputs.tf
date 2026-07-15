@@ -42,6 +42,12 @@ output "external_secrets_role_arn" {
   value = module.external_secrets_irsa.iam_role_arn
 }
 
+output "platform_certificate_arn" {
+  description = "Wildcard ACM certificate used by public platform ingresses."
+  value       = aws_acm_certificate_validation.argocd.certificate_arn
+}
+
+# Backward-compatible alias used by the existing ArgoCD Helm release.
 output "argocd_certificate_arn" {
   value = aws_acm_certificate_validation.argocd.certificate_arn
 }

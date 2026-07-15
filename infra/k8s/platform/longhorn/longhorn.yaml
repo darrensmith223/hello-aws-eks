@@ -1,0 +1,41 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: longhorn
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "15"
+spec:
+  project: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: longhorn-system
+  source:
+    repoURL: https://charts.longhorn.io
+    chart: longhorn
+    targetRevision: 1.12.0
+    helm:
+      values: |
+        persistence:
+          # Keep gp3 as the cluster's default StorageClass. Applications must
+          # explicitly request storageClassName: longhorn to use Longhorn.
+          defaultClass: false
+          defaultClassReplicaCount: 2
+
+        defaultSettings:
+          defaultReplicaCount: 2
+          storageMinimalAvailablePercentage: 20
+          orphanAutoDeletion: false
+
+        longhornUI:
+          replicas: 1
+
+        ingress:
+          enabled: false
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true
