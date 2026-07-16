@@ -138,29 +138,45 @@ module "eks" {
   subnet_ids = module.vpc.private_subnets
 
   eks_managed_node_groups = {
-    default = {
-      name = "default"
+  default = {
+    name = "default"
 
-      ami_type = "AL2023_x86_64_STANDARD"
+    ami_type = "AL2023_x86_64_STANDARD"
 
-      instance_types             = var.node_instance_types
-      use_custom_launch_template = false
+    instance_types             = var.node_instance_types
+    use_custom_launch_template = true
 
-      min_size     = var.node_min_size
-      desired_size = var.node_desired_size
-      max_size     = var.node_max_size
+    cloudinit_pre_nodeadm = [
+      {
+        content_type = "text/x-shellscript"
+        content = <<-EOT
+          #!/bin/bash
+          set -euxo pipefail
 
-      disk_size = 50
+          dnf install -y iscsi-initiator-utils
+          systemctl enable --now iscsid
 
-      labels = {
-        workload = "general"
+          iscsiadm --version
+          systemctl is-active iscsid
+        EOT
       }
+    ]
 
-      iam_role_additional_policies = {
-        AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-      }
+    min_size     = var.node_min_size
+    desired_size = var.node_desired_size
+    max_size     = var.node_max_size
+
+    disk_size = 50
+
+    labels = {
+      workload = "general"
+    }
+
+    iam_role_additional_policies = {
+      AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
     }
   }
+}
 
   tags = local.tags
 

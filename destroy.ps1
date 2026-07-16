@@ -121,10 +121,80 @@ if ($ClusterExists) {
     aws eks update-kubeconfig --name $ClusterName --region $Region
 
     Step "Deleting ArgoCD Applications"
+
+    # Request deletion without allowing kubectl to wait forever on ArgoCD
+    # resource finalizers.
     $deleteApps = Run-AllowFailure {
-        kubectl delete applications.argoproj.io --all -n argocd --ignore-not-found=true
+        kubectl delete applications.argoproj.io `
+            --all `
+            -n argocd `
+            --ignore-not-found=true `
+            --wait=false
     }
-    if ($deleteApps.ExitCode -ne 0) { Warn "Could not delete ArgoCD Applications. Continuing." }
+
+    if ($deleteApps.ExitCode -ne 0) {
+        Warn "Could not request deletion of ArgoCD Applications."
+    }
+
+    # Give ArgoCD time to perform normal cascading deletion.
+    $appsDeletedNormally = $false
+    $elapsed = 0
+    $timeoutSeconds = 300
+    $sleepSeconds = 10
+
+    while ($elapsed -lt $timeoutSeconds) {
+        $remainingApps = Run-AllowFailure {
+            kubectl get applications.argoproj.io `
+                -n argocd `
+                --no-headers
+        }
+
+        $remainingOutput = ($remainingApps.Output | Out-String).Trim()
+
+        if (
+            $remainingApps.ExitCode -ne 0 -or
+            [string]::IsNullOrWhiteSpace($remainingOutput)
+        ) {
+            Write-Host "ArgoCD Applications deleted."
+            $appsDeletedNormally = $true
+            break
+        }
+
+        Start-Sleep -Seconds $sleepSeconds
+        $elapsed += $sleepSeconds
+        Write-Host "Still waiting for ArgoCD Applications... ${elapsed}s elapsed"
+    }
+
+    if (-not $appsDeletedNormally) {
+        Warn "ArgoCD Applications are still blocked. Removing finalizers because the entire cluster is being destroyed."
+
+        $remainingApplicationNames = Run-AllowFailure {
+            kubectl get applications.argoproj.io `
+                -n argocd `
+                -o name
+        }
+
+        if ($remainingApplicationNames.ExitCode -eq 0) {
+            foreach ($application in $remainingApplicationNames.Output) {
+                $applicationName = "$application".Trim()
+
+                if (-not [string]::IsNullOrWhiteSpace($applicationName)) {
+                    Write-Host "Removing finalizers from $applicationName"
+
+                    $patchResult = Run-AllowFailure {
+                        kubectl patch $applicationName `
+                            -n argocd `
+                            --type merge `
+                            -p '{"metadata":{"finalizers":[]}}'
+                    }
+
+                    if ($patchResult.ExitCode -ne 0) {
+                        Warn "Could not remove finalizers from $applicationName"
+                    }
+                }
+            }
+        }
+    }
 
     Step "Deleting ingresses"
     $deleteIngresses = Run-AllowFailure {
