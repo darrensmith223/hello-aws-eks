@@ -2,6 +2,10 @@ param(
     [string]$Environment = "dev"
 )
 
+$env:AWS_PROFILE = "terraform"
+Write-Host "Using AWS profile: $env:AWS_PROFILE"
+aws sts get-caller-identity
+
 $ErrorActionPreference = "Stop"
 
 $ExpectedArnFragment = "user/darren-iam"
