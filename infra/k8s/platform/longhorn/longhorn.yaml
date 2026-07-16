@@ -32,6 +32,9 @@ spec:
 
         ingress:
           enabled: false
+        
+        preUpgradeChecker:
+          jobEnabled: false
   syncPolicy:
     automated:
       prune: true
