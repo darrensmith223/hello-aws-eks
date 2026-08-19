@@ -70,6 +70,192 @@ function Terraform-Destroy-Layer($Name, $Path, [bool]$ClusterExists, [bool]$Refr
     }
 }
 
+function Delete-Application-And-WaitOrForce($AppName, $Namespace, $TimeoutSeconds = 300, $SleepSeconds = 10) {
+    # Deletes a single ArgoCD Application (not --all) and waits for it to
+    # actually disappear. If it's still blocked after the timeout, strips
+    # finalizers as a last resort -- same fallback the generic bulk-delete
+    # path already used, just scoped to one app instead of everything.
+    Step "Deleting ArgoCD Application '$AppName'"
+
+    $exists = Run-AllowFailure { kubectl get application $AppName -n $Namespace }
+    if ($exists.ExitCode -ne 0) {
+        Write-Host "Application '$AppName' not found. Nothing to do."
+        return
+    }
+
+    $null = Run-AllowFailure {
+        kubectl delete application $AppName -n $Namespace --ignore-not-found=true --wait=false
+    }
+
+    $elapsed = 0
+    while ($elapsed -lt $TimeoutSeconds) {
+        $check = Run-AllowFailure { kubectl get application $AppName -n $Namespace }
+        if ($check.ExitCode -ne 0) {
+            Write-Host "Application '$AppName' deleted."
+            return
+        }
+        Start-Sleep -Seconds $SleepSeconds
+        $elapsed += $SleepSeconds
+        Write-Host "Still waiting for Application '$AppName'... ${elapsed}s elapsed"
+    }
+
+    Warn "Application '$AppName' is still blocked. Removing finalizers."
+    $null = Run-AllowFailure {
+        kubectl patch application $AppName -n $Namespace --type merge -p '{"metadata":{"finalizers":[]}}'
+    }
+}
+
+function Uninstall-Longhorn {
+    # Longhorn documents that it requires its own uninstall sequence and
+    # will NOT clean up safely if simply deleted like an ordinary Helm
+    # release: ArgoCD does not run the PreDelete hook a normal Longhorn
+    # uninstall relies on, and Longhorn intentionally blocks deletion
+    # behind a "deleting-confirmation-flag" setting as a safety check.
+    # Skipping this sequence is exactly how you end up with orphaned
+    # longhorn.io CRDs/webhooks and an API server that can't cleanly
+    # tear down.
+    Step "Uninstalling Longhorn"
+
+    $nsCheck = Run-AllowFailure { kubectl get namespace longhorn-system }
+    if ($nsCheck.ExitCode -ne 0) {
+        Write-Host "longhorn-system namespace not found. Skipping Longhorn uninstall."
+        return
+    }
+
+    Step "Deleting workloads using Longhorn-backed PVCs"
+    $pvcs = Run-AllowFailure {
+        kubectl get pvc -A -o json |
+            ConvertFrom-Json |
+            Select-Object -ExpandProperty items |
+            Where-Object { $_.spec.storageClassName -eq "longhorn" }
+    }
+    if ($pvcs.ExitCode -eq 0 -and $pvcs.Output) {
+        foreach ($pvc in $pvcs.Output) {
+            $ns = $pvc.metadata.namespace
+            $name = $pvc.metadata.name
+            Write-Host "Deleting PVC $ns/$name (storageClassName: longhorn)"
+            $null = Run-AllowFailure { kubectl delete pvc $name -n $ns --ignore-not-found=true --wait=false }
+        }
+        Wait-Until "Longhorn-backed PVCs to finish deleting" {
+            $remaining = Run-AllowFailure {
+                kubectl get pvc -A -o json |
+                    ConvertFrom-Json |
+                    Select-Object -ExpandProperty items |
+                    Where-Object { $_.spec.storageClassName -eq "longhorn" }
+            }
+            return -not ($remaining.ExitCode -eq 0 -and $remaining.Output)
+        } 300 10
+    }
+    else {
+        Write-Host "No Longhorn-backed PVCs found."
+    }
+
+    Step "Setting Longhorn's deleting-confirmation-flag"
+    # Longhorn refuses to let its manager tear itself down unless this is
+    # explicitly set -- it's a deliberate guardrail against accidental
+    # data loss, and we want it to run through its own cleanup, not skip it.
+    $null = Run-AllowFailure {
+        kubectl -n longhorn-system patch settings.longhorn.io deleting-confirmation-flag `
+            --type merge -p '{"value":"true"}'
+    }
+
+    Delete-Application-And-WaitOrForce "longhorn" "argocd" 300 10
+
+    Wait-Until "longhorn-system namespace to terminate" {
+        $ns = Run-AllowFailure { kubectl get namespace longhorn-system }
+        return $ns.ExitCode -ne 0
+    } 300 10
+
+    Step "Verifying no leftover Longhorn CRDs/webhooks"
+    $leftoverCrds = Run-AllowFailure {
+        kubectl get crd -o name | Select-String "longhorn.io"
+    }
+    if ($leftoverCrds.ExitCode -eq 0 -and ($leftoverCrds.Output | Out-String).Trim()) {
+        Warn "Longhorn CRDs still present after uninstall. Force-deleting them."
+        foreach ($crd in $leftoverCrds.Output) {
+            $crdName = "$crd".Trim()
+            if ($crdName) {
+                $null = Run-AllowFailure { kubectl delete $crdName --ignore-not-found=true }
+            }
+        }
+    }
+
+    $leftoverWebhooks = Run-AllowFailure {
+        @(kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations -o name) |
+            Select-String "longhorn"
+    }
+    if ($leftoverWebhooks.ExitCode -eq 0 -and ($leftoverWebhooks.Output | Out-String).Trim()) {
+        Warn "Longhorn webhook configurations still present after uninstall. Force-deleting them."
+        foreach ($webhook in $leftoverWebhooks.Output) {
+            $webhookName = "$webhook".Trim()
+            if ($webhookName) {
+                $null = Run-AllowFailure { kubectl delete $webhookName --ignore-not-found=true }
+            }
+        }
+    }
+
+    $nsStillThere = Run-AllowFailure { kubectl get namespace longhorn-system }
+    if ($nsStillThere.ExitCode -eq 0) {
+        Warn "longhorn-system namespace is still present. Force-deleting it."
+        $null = Run-AllowFailure { kubectl delete namespace longhorn-system --ignore-not-found=true }
+    }
+
+    Write-Host "Longhorn uninstall complete."
+}
+
+function Uninstall-Rancher {
+    Step "Uninstalling Rancher"
+
+    $nsCheck = Run-AllowFailure { kubectl get namespace cattle-system }
+    if ($nsCheck.ExitCode -ne 0) {
+        Write-Host "cattle-system namespace not found. Skipping Rancher uninstall."
+        return
+    }
+
+    Delete-Application-And-WaitOrForce "rancher" "argocd" 300 10
+
+    Wait-Until "cattle-system namespace to terminate" {
+        $ns = Run-AllowFailure { kubectl get namespace cattle-system }
+        return $ns.ExitCode -ne 0
+    } 300 10
+
+    Step "Verifying no leftover Rancher (cattle) CRDs/webhooks"
+    $leftoverCrds = Run-AllowFailure {
+        kubectl get crd -o name | Select-String "cattle.io"
+    }
+    if ($leftoverCrds.ExitCode -eq 0 -and ($leftoverCrds.Output | Out-String).Trim()) {
+        Warn "Rancher (cattle.io) CRDs still present after uninstall. Force-deleting them."
+        foreach ($crd in $leftoverCrds.Output) {
+            $crdName = "$crd".Trim()
+            if ($crdName) {
+                $null = Run-AllowFailure { kubectl delete $crdName --ignore-not-found=true }
+            }
+        }
+    }
+
+    $leftoverWebhooks = Run-AllowFailure {
+        @(kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations -o name) |
+            Select-String "rancher"
+    }
+    if ($leftoverWebhooks.ExitCode -eq 0 -and ($leftoverWebhooks.Output | Out-String).Trim()) {
+        Warn "Rancher webhook configurations still present after uninstall. Force-deleting them."
+        foreach ($webhook in $leftoverWebhooks.Output) {
+            $webhookName = "$webhook".Trim()
+            if ($webhookName) {
+                $null = Run-AllowFailure { kubectl delete $webhookName --ignore-not-found=true }
+            }
+        }
+    }
+
+    $nsStillThere = Run-AllowFailure { kubectl get namespace cattle-system }
+    if ($nsStillThere.ExitCode -eq 0) {
+        Warn "cattle-system namespace is still present. Force-deleting it."
+        $null = Run-AllowFailure { kubectl delete namespace cattle-system --ignore-not-found=true }
+    }
+
+    Write-Host "Rancher uninstall complete."
+}
+
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $Root
 
@@ -120,7 +306,25 @@ if ($ClusterExists) {
     $Region = terraform "-chdir=$AwsDir" output -raw aws_region
     aws eks update-kubeconfig --name $ClusterName --region $Region
 
-    Step "Deleting ArgoCD Applications"
+    Step "Suspending platform-root auto-sync"
+    # Stop ArgoCD from reconciling platform-root (and therefore
+    # re-creating Longhorn/Rancher/everything else) while we tear things
+    # down in a specific order below.
+    $null = Run-AllowFailure {
+        kubectl patch application platform-root -n argocd `
+            --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}'
+    }
+
+    # Longhorn and Rancher each need their own uninstall handling before
+    # anything else is touched -- see function comments. This must happen
+    # before the generic bulk Application deletion below, or Longhorn's
+    # CRDs/webhooks (and possibly Rancher's) can be left behind once the
+    # EKS API server itself is gone, per Longhorn's own uninstall
+    # documentation.
+    Uninstall-Longhorn
+    Uninstall-Rancher
+
+    Step "Deleting remaining ArgoCD Applications"
 
     # Request deletion without allowing kubectl to wait forever on ArgoCD
     # resource finalizers.

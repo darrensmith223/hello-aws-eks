@@ -105,21 +105,29 @@ module "eks" {
     vpc-cni = {
       # Pinned versions prevent unexpected changes on `terraform apply`.
       # Update these intentionally when upgrading the cluster.
-      # To find the latest: aws eks describe-addon-versions --kubernetes-version 1.32 --addon-name vpc-cni
-      addon_version  = "v1.19.2-eksbuild.5"
+      #
+      # NOTE: these version strings were selected as reasonable candidates
+      # for Kubernetes 1.34 but were NOT verified against the live EKS
+      # addon-versions API (this environment has no AWS credentials/network
+      # access). Before applying, confirm each with:
+      #   aws eks describe-addon-versions --kubernetes-version 1.34 --addon-name <name>
+      # and also confirm arm64 build availability for the c6gd (Graviton)
+      # node group -- all of these addons ship multi-arch images, but it's
+      # worth a quick confirmation on the specific build tag you pin.
+      addon_version  = "v1.20.4-eksbuild.1"
       before_compute = true
     }
 
     kube-proxy = {
-      addon_version = "v1.32.3-eksbuild.2"
+      addon_version = "v1.34.0-eksbuild.2"
     }
 
     coredns = {
-      addon_version = "v1.11.4-eksbuild.2"
+      addon_version = "v1.12.1-eksbuild.2"
     }
 
     aws-ebs-csi-driver = {
-      addon_version = "v1.41.0-eksbuild.1"
+      addon_version = "v1.51.0-eksbuild.1"
 
       pod_identity_association = [
         {
@@ -130,7 +138,7 @@ module "eks" {
     }
 
     eks-pod-identity-agent = {
-      addon_version = "v1.3.4-eksbuild.1"
+      addon_version = "v1.3.9-eksbuild.3"
     }
   }
 
@@ -141,10 +149,37 @@ module "eks" {
   default = {
     name = "default"
 
-    ami_type = "AL2023_x86_64_STANDARD"
+    # c6gd is a Graviton (arm64) family, so this must be an ARM AMI type.
+    ami_type = "AL2023_ARM_64_STANDARD"
 
     instance_types             = var.node_instance_types
     use_custom_launch_template = true
+
+    # c6gd nodes ship with local NVMe instance storage (237 GB on
+    # .xlarge) that's already included in the instance price and
+    # substantially faster than gp3 (baseline 6,000 IOPS / 1,188 Mbps vs
+    # gp3's 3,000 IOPS / 125 MB/s). Longhorn's data is mounted there
+    # instead of a separate EBS volume.
+    #
+    # IMPORTANT: instance store is ephemeral. Data is wiped on stop,
+    # hibernation, or termination -- including ASG scale-in/out and
+    # rolling node replacement -- though it DOES survive a plain reboot.
+    # This is acceptable because Longhorn's own replication (2 replicas
+    # per volume, spread across nodes) is the actual durability
+    # mechanism here, not the underlying disk. No block_device_mappings
+    # entry is needed for it: AWS auto-attaches all supported instance
+    # store volumes at launch for instance types that have them.
+    block_device_mappings = {
+      xvda = {
+        device_name = "/dev/xvda"
+        ebs = {
+          volume_size           = 50
+          volume_type           = "gp3"
+          encrypted             = true
+          delete_on_termination = true
+        }
+      }
+    }
 
     cloudinit_pre_nodeadm = [
       {
@@ -153,11 +188,58 @@ module "eks" {
           #!/bin/bash
           set -euxo pipefail
 
-          dnf install -y iscsi-initiator-utils
+          # iscsi: required by Longhorn's V1 data engine.
+          # nfs-utils: required only if/when Longhorn RWX volumes are used.
+          dnf install -y iscsi-initiator-utils nfs-utils
           systemctl enable --now iscsid
 
           iscsiadm --version
           systemctl is-active iscsid
+
+          # --- Local NVMe instance store for Longhorn data ---
+          # Distinguish the instance-store NVMe device from the root EBS
+          # volume (also NVMe-backed on Nitro instances) by its model
+          # string in sysfs, rather than assuming a device name/order.
+          DEVICE=""
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            for ctrl in /sys/class/nvme/nvme*; do
+              [ -e "$ctrl/model" ] || continue
+              if grep -q "Instance Storage" "$ctrl/model"; then
+                ctrl_name=$(basename "$ctrl")
+                candidate="/dev/$${ctrl_name}n1"
+                if [ -b "$candidate" ]; then
+                  DEVICE="$candidate"
+                  break 2
+                fi
+              fi
+            done
+            sleep 3
+          done
+
+          if [ -z "$DEVICE" ]; then
+            echo "ERROR: no NVMe instance store device found; Longhorn data volume not available." >&2
+            exit 1
+          fi
+
+          MOUNT_POINT=/var/lib/longhorn
+          mkdir -p "$MOUNT_POINT"
+
+          # Only format if there's no filesystem yet. Instance store data
+          # survives a plain reboot (just not a stop/terminate), so don't
+          # blindly reformat on every boot.
+          if ! blkid "$DEVICE" >/dev/null 2>&1; then
+            mkfs.ext4 -F "$DEVICE"
+          fi
+
+          if ! grep -q "$MOUNT_POINT" /etc/fstab; then
+            # nofail is required here: instance store devices are not
+            # guaranteed to enumerate at the exact same path across every
+            # boot, and a missing device must not block node boot.
+            VOL_UUID=$(blkid -s UUID -o value "$DEVICE")
+            echo "UUID=$VOL_UUID  $MOUNT_POINT  ext4  defaults,nofail  0  2" >> /etc/fstab
+          fi
+
+          mount -a
         EOT
       }
     ]
@@ -166,10 +248,9 @@ module "eks" {
     desired_size = var.node_desired_size
     max_size     = var.node_max_size
 
-    disk_size = 50
-
     labels = {
-      workload = "general"
+      workload         = "general"
+      "longhorn-ready" = "true"
     }
 
     iam_role_additional_policies = {

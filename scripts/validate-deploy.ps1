@@ -135,6 +135,112 @@ Test-Step "Longhorn StorageClass exists and gp3 remains default" {
     }
 }
 
+Test-Step "Every Longhorn node has a schedulable dedicated data disk" {
+    # Confirms the dedicated local NVMe instance-store volume mounted at
+    # /var/lib/longhorn (see eks-foundation module) was actually picked up as Longhorn's disk on
+    # every node -- not just that the manager pod is running.
+    $nodesJson = kubectl get nodes.longhorn.io -n longhorn-system -o json | ConvertFrom-Json
+    if (-not $nodesJson.items -or $nodesJson.items.Count -lt 3) {
+        throw "Expected at least 3 Longhorn nodes, found $($nodesJson.items.Count)"
+    }
+    foreach ($node in $nodesJson.items) {
+        $disks = $node.spec.disks.PSObject.Properties.Value
+        $schedulableDisk = $disks | Where-Object { $_.allowScheduling -eq $true }
+        if (-not $schedulableDisk) {
+            throw "Longhorn node $($node.metadata.name) has no schedulable disk"
+        }
+    }
+}
+
+Test-Step "Longhorn volume read/write/reschedule smoke test" {
+    # Provisions a real Longhorn PVC, writes known data, deletes and
+    # recreates the consuming pod (forcing a reschedule/reattach), and
+    # verifies the data survived -- catching failures that
+    # "is the DaemonSet Ready" alone would miss entirely.
+    $ns = "longhorn-smoke-test"
+    $pvcYaml = @"
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: $ns
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: smoke-test-pvc
+  namespace: $ns
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 1Gi
+"@
+    $pvcYaml | kubectl apply -f -
+
+    $writerPodYaml = @"
+apiVersion: v1
+kind: Pod
+metadata:
+  name: smoke-test-writer
+  namespace: $ns
+spec:
+  restartPolicy: Never
+  containers:
+    - name: writer
+      image: public.ecr.aws/docker/library/busybox:1.36
+      command: ["sh", "-c", "echo longhorn-smoke-test-value > /data/testfile && sleep 3600"]
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: smoke-test-pvc
+"@
+    $writerPodYaml | kubectl apply -f -
+    kubectl wait --for=condition=Ready pod/smoke-test-writer -n $ns --timeout=180s
+
+    $written = kubectl exec smoke-test-writer -n $ns -- cat /data/testfile
+    if (($written | Out-String).Trim() -ne "longhorn-smoke-test-value") {
+        throw "Data written to Longhorn volume did not read back correctly"
+    }
+
+    # Force a reschedule onto a (possibly different) node to prove the
+    # volume reattaches correctly, not just that it worked on first mount.
+    kubectl delete pod smoke-test-writer -n $ns --wait=true --timeout=120s
+
+    $readerPodYaml = @"
+apiVersion: v1
+kind: Pod
+metadata:
+  name: smoke-test-reader
+  namespace: $ns
+spec:
+  restartPolicy: Never
+  containers:
+    - name: reader
+      image: public.ecr.aws/docker/library/busybox:1.36
+      command: ["sh", "-c", "sleep 3600"]
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: smoke-test-pvc
+"@
+    $readerPodYaml | kubectl apply -f -
+    kubectl wait --for=condition=Ready pod/smoke-test-reader -n $ns --timeout=180s
+
+    $reread = kubectl exec smoke-test-reader -n $ns -- cat /data/testfile
+    if (($reread | Out-String).Trim() -ne "longhorn-smoke-test-value") {
+        throw "Data did not survive pod reschedule/volume reattach"
+    }
+
+    kubectl delete namespace $ns --wait=false
+}
+
 Test-Step "ArgoCD hostname resolves" {
     nslookup "argocd.$DomainName"
 }

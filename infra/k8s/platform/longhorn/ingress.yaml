@@ -1,3 +1,15 @@
+# INTENTIONALLY NOT included in kustomization.yaml.
+#
+# This is an internet-facing ALB pointed at the Longhorn UI, which has no
+# authentication of its own in a standard Helm install. Adding this to
+# kustomization.yaml as-is would expose an unauthenticated
+# storage-management interface to the internet.
+#
+# Access the UI for now via `kubectl port-forward` or through Rancher's
+# cluster explorer instead. Before wiring this back in, put it behind
+# either an authenticating proxy (e.g. oauth2-proxy in front of the ALB)
+# or restrict alb.ingress.kubernetes.io/scheme to internal and access it
+# over the private network only.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

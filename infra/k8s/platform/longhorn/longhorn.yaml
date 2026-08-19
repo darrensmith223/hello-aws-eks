@@ -23,6 +23,17 @@ spec:
           defaultClassReplicaCount: 2
 
         defaultSettings:
+          # Longhorn's default data path (/var/lib/longhorn) is now backed
+          # by a dedicated local NVMe instance-store volume rather than
+          # the root disk (see eks-foundation module). 20% reserved-
+          # available is Longhorn's guidance for dedicated disks; if this
+          # ever reverts to sharing the root disk, bump this to the more
+          # conservative 25% root-disk guidance.
+          #
+          # NOTE: instance store is ephemeral (wiped on stop/terminate).
+          # Durability comes from Longhorn's own replication
+          # (defaultReplicaCount: 2 below), not from this disk surviving
+          # node loss.
           defaultReplicaCount: 2
           storageMinimalAvailablePercentage: 20
           orphanAutoDeletion: false
@@ -32,9 +43,14 @@ spec:
 
         ingress:
           enabled: false
-        
+
+        # Re-enabled: this job validates upgrade safety (e.g. detects
+        # in-progress replica rebuilds, incompatible settings) before a
+        # chart upgrade proceeds. It was previously disabled with no
+        # documented reason; there's no known incompatibility that
+        # requires disabling it, so it stays on.
         preUpgradeChecker:
-          jobEnabled: false
+          jobEnabled: true
   syncPolicy:
     automated:
       prune: true
