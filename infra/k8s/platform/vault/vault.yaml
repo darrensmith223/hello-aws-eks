@@ -5,12 +5,15 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "5"
+
 spec:
   project: default
+
   source:
     repoURL: https://helm.releases.hashicorp.com
     chart: vault
     targetRevision: 0.30.1
+
     helm:
       values: |
         global:
@@ -47,9 +50,15 @@ spec:
             enabled: true
             replicas: 1
 
+            # This dev cluster only runs one Vault replica. A disruption
+            # budget with maxUnavailable=0 prevents EKS managed node
+            # updates from draining the node that hosts vault-0.
+            #
+            # Re-enable this when Vault is deployed with multiple replicas
+            # in a highly available configuration.
             disruptionBudget:
               enabled: false
-            
+
             raft:
               enabled: true
               setNodeId: true
@@ -74,24 +83,31 @@ spec:
 
                 service_registration "kubernetes" {}
 
+          # Vault can legitimately be sealed or uninitialized while its
+          # process is otherwise healthy. Treat those states as HTTP 204
+          # so Kubernetes does not restart Vault merely because it has not
+          # yet been initialized or auto-unsealed.
           readinessProbe:
             enabled: true
             path: "/v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204"
 
           livenessProbe:
             enabled: true
-            path: "/v1/sys/health?standbyok=true"
+            path: "/v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204"
             initialDelaySeconds: 60
 
         ui:
           enabled: true
           serviceType: ClusterIP
+
   destination:
     server: https://kubernetes.default.svc
     namespace: vault
+
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
+
     syncOptions:
       - CreateNamespace=false
