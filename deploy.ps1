@@ -230,9 +230,12 @@ Run-Step "Waiting for ArgoCD repo-server rollout" {
 # kubernetes_manifest validates the CRD via the API server at plan time and
 # will fail with "cannot select exact GV" if the webhook is not yet ready.
 Wait-Until "External Secrets webhook to be ready" {
-    $ready = kubectl get endpoints external-secrets-webhook -n external-secrets `
-        -o jsonpath='{.subsets[0].addresses[0].ip}' 2>$null
-    return -not [string]::IsNullOrWhiteSpace($ready)
+    $ready = kubectl get endpointslice `
+        -n external-secrets `
+        -l kubernetes.io/service-name=external-secrets-webhook `
+        -o jsonpath='{.items[0].endpoints[0].conditions.ready}' 2>$null
+
+    return $ready -eq "true"
 } 300 10
 
 # Same for ArgoCD — wait for its CRD registration to settle.

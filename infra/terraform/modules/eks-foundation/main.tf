@@ -99,6 +99,15 @@ module "eks" {
       type        = "egress"
       cidr_blocks = ["0.0.0.0/0"]
     }
+
+    ingress_rancher_imperative_api = {
+      description                   = "Cluster API to Rancher imperative API"
+      protocol                      = "tcp"
+      from_port                     = 6666
+      to_port                       = 6666
+      type                          = "ingress"
+      source_cluster_security_group = true
+    }
   }
 
   addons = {
@@ -146,45 +155,45 @@ module "eks" {
   subnet_ids = module.vpc.private_subnets
 
   eks_managed_node_groups = {
-  default = {
-    name = "default"
+    default = {
+      name = "default"
 
-    # c6gd is a Graviton (arm64) family, so this must be an ARM AMI type.
-    ami_type = "AL2023_ARM_64_STANDARD"
+      # c6gd is a Graviton (arm64) family, so this must be an ARM AMI type.
+      ami_type = "AL2023_ARM_64_STANDARD"
 
-    instance_types             = var.node_instance_types
-    use_custom_launch_template = true
+      instance_types             = var.node_instance_types
+      use_custom_launch_template = true
 
-    # c6gd nodes ship with local NVMe instance storage (237 GB on
-    # .xlarge) that's already included in the instance price and
-    # substantially faster than gp3 (baseline 6,000 IOPS / 1,188 Mbps vs
-    # gp3's 3,000 IOPS / 125 MB/s). Longhorn's data is mounted there
-    # instead of a separate EBS volume.
-    #
-    # IMPORTANT: instance store is ephemeral. Data is wiped on stop,
-    # hibernation, or termination -- including ASG scale-in/out and
-    # rolling node replacement -- though it DOES survive a plain reboot.
-    # This is acceptable because Longhorn's own replication (2 replicas
-    # per volume, spread across nodes) is the actual durability
-    # mechanism here, not the underlying disk. No block_device_mappings
-    # entry is needed for it: AWS auto-attaches all supported instance
-    # store volumes at launch for instance types that have them.
-    block_device_mappings = {
-      xvda = {
-        device_name = "/dev/xvda"
-        ebs = {
-          volume_size           = 50
-          volume_type           = "gp3"
-          encrypted             = true
-          delete_on_termination = true
+      # c6gd nodes ship with local NVMe instance storage (237 GB on
+      # .xlarge) that's already included in the instance price and
+      # substantially faster than gp3 (baseline 6,000 IOPS / 1,188 Mbps vs
+      # gp3's 3,000 IOPS / 125 MB/s). Longhorn's data is mounted there
+      # instead of a separate EBS volume.
+      #
+      # IMPORTANT: instance store is ephemeral. Data is wiped on stop,
+      # hibernation, or termination -- including ASG scale-in/out and
+      # rolling node replacement -- though it DOES survive a plain reboot.
+      # This is acceptable because Longhorn's own replication (2 replicas
+      # per volume, spread across nodes) is the actual durability
+      # mechanism here, not the underlying disk. No block_device_mappings
+      # entry is needed for it: AWS auto-attaches all supported instance
+      # store volumes at launch for instance types that have them.
+      block_device_mappings = {
+        xvda = {
+          device_name = "/dev/xvda"
+          ebs = {
+            volume_size           = 50
+            volume_type           = "gp3"
+            encrypted             = true
+            delete_on_termination = true
+          }
         }
       }
-    }
 
-    cloudinit_pre_nodeadm = [
-      {
-        content_type = "text/x-shellscript"
-        content = <<-EOT
+      cloudinit_pre_nodeadm = [
+        {
+          content_type = "text/x-shellscript"
+          content      = <<-EOT
           #!/bin/bash
           set -euxo pipefail
 
@@ -241,23 +250,23 @@ module "eks" {
 
           mount -a
         EOT
+        }
+      ]
+
+      min_size     = var.node_min_size
+      desired_size = var.node_desired_size
+      max_size     = var.node_max_size
+
+      labels = {
+        workload         = "general"
+        "longhorn-ready" = "true"
       }
-    ]
 
-    min_size     = var.node_min_size
-    desired_size = var.node_desired_size
-    max_size     = var.node_max_size
-
-    labels = {
-      workload         = "general"
-      "longhorn-ready" = "true"
-    }
-
-    iam_role_additional_policies = {
-      AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      iam_role_additional_policies = {
+        AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      }
     }
   }
-}
 
   tags = local.tags
 
