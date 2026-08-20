@@ -4,11 +4,24 @@ param(
     [string]$ClusterName = "practice-eks-dev",
     [string]$DomainName = "ddsprojects.link",
     [string]$RepoSecretName = "dev/argocd/repo/hello-aws-eks",
-    [string]$LonghornBackupBucket = "dev-longhorn-backups"
+    [string]$LonghornBackupBucket = ""
 )
 
 $ErrorActionPreference = "Continue"
 $failed = 0
+
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+$AwsDir = Join-Path $RepoRoot "infra\terraform\environments\dev\aws"
+
+if ([string]::IsNullOrWhiteSpace($LonghornBackupBucket)) {
+    $LonghornBackupBucket = terraform "-chdir=$AwsDir" output -raw longhorn_backup_bucket_name
+
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($LonghornBackupBucket)) {
+        throw "Unable to determine Longhorn backup bucket from Terraform output"
+    }
+
+    $LonghornBackupBucket = $LonghornBackupBucket.Trim()
+}
 
 function Test-Step {
     param(
@@ -208,7 +221,17 @@ Test-Step "Longhorn S3 BackupTarget is configured and available" {
     }
 
     if ($target.status.available -ne $true) {
-        $message = ($target.status.conditions | Where-Object { $_.status -eq "False" } | Select-Object -First 1 -ExpandProperty message)
+        $unavailableCondition = $target.status.conditions |
+            Where-Object { $_.type -eq "Unavailable" -and $_.status -eq "True" } |
+            Select-Object -First 1
+
+        $message = if ($unavailableCondition -and -not [string]::IsNullOrWhiteSpace($unavailableCondition.message)) {
+            $unavailableCondition.message
+        }
+        else {
+            "No Longhorn status message was reported."
+        }
+
         throw "Longhorn backup target is not available. $message"
     }
 }
@@ -251,9 +274,22 @@ Test-Step "Longhorn ServiceMonitor exists for Prometheus" {
 
 Test-Step "Longhorn StorageClass exists and gp3 remains default" {
     kubectl get storageclass longhorn
-    $defaultClass = kubectl get storageclass -o jsonpath='{range .items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")]}{.metadata.name}{"\n"}{end}'
-    if (($defaultClass | Out-String).Trim() -ne "gp3") {
-        throw "Expected gp3 to be the sole default StorageClass, got: $defaultClass"
+
+    $storageClasses = kubectl get storageclass -o json | ConvertFrom-Json
+
+    $defaultClasses = @(
+        $storageClasses.items |
+            Where-Object {
+                $_.metadata.annotations.'storageclass.kubernetes.io/is-default-class' -eq 'true' -or
+                $_.metadata.annotations.'storageclass.beta.kubernetes.io/is-default-class' -eq 'true'
+            } |
+            ForEach-Object {
+                $_.metadata.name
+            }
+    )
+
+    if ($defaultClasses.Count -ne 1 -or $defaultClasses[0] -ne "gp3") {
+        throw "Expected gp3 to be the sole default StorageClass, got: $($defaultClasses -join ', ')"
     }
 }
 

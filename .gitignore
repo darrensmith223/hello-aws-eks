@@ -18,3 +18,6 @@ override.tf.json
 # Sensitive variables only
 *.auto.tfvars
 secret*.tfvars
+
+# Vault
+vault-init.json

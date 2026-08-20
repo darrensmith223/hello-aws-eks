@@ -108,6 +108,36 @@ module "eks" {
       type                          = "ingress"
       source_cluster_security_group = true
     }
+
+    # Longhorn webhooks are invoked by the EKS control plane. Keep these
+    # as explicit ports so the purpose of each control-plane ingress rule
+    # is visible in the node security group.
+    ingress_longhorn_conversion_webhook = {
+      description                   = "Cluster API to Longhorn conversion webhook"
+      protocol                      = "tcp"
+      from_port                     = 9501
+      to_port                       = 9501
+      type                          = "ingress"
+      source_cluster_security_group = true
+    }
+
+    ingress_longhorn_admission_webhook = {
+      description                   = "Cluster API to Longhorn admission webhook"
+      protocol                      = "tcp"
+      from_port                     = 9502
+      to_port                       = 9502
+      type                          = "ingress"
+      source_cluster_security_group = true
+    }
+
+    ingress_longhorn_recovery_backend = {
+      description                   = "Cluster API to Longhorn recovery backend"
+      protocol                      = "tcp"
+      from_port                     = 9503
+      to_port                       = 9503
+      type                          = "ingress"
+      source_cluster_security_group = true
+    }
   }
 
   addons = {

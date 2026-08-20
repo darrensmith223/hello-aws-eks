@@ -1,0 +1,7 @@
+{
+  "spec": {
+    "backupTargetURL": "s3://584655112610-dev-longhorn-backups@us-east-1/backupstore/",
+    "credentialSecret": "longhorn-backup-credentials",
+    "pollInterval": "5m"
+  }
+}

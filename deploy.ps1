@@ -293,7 +293,7 @@ metadata:
 spec:
   backupTargetURL: "$longhornBackupTarget"
   credentialSecret: "$longhornBackupCredentialSecret"
-  pollInterval: "300"
+  pollInterval: "5m"
 "@
 
 # Back up Longhorn volumes every day at 03:00 UTC. Putting the job in the
