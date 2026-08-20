@@ -11,4 +11,4 @@ node_max_size       = 4
 domain_name         = "ddsprojects.link"
 
 # Longhorn off-cluster backupstore. Override if this globally unique S3 name is unavailable.
-longhorn_backup_bucket_name = "dev-longhorn-backups"
+longhorn_backup_bucket_name = "584655112610-dev-longhorn-backups"
