@@ -86,3 +86,13 @@ output "loki_bucket_name" {
 output "loki_role_arn" {
   value = module.loki_irsa.iam_role_arn
 }
+
+output "longhorn_backup_bucket_name" {
+  description = "S3 bucket used by Longhorn for off-cluster backups."
+  value       = aws_s3_bucket.longhorn_backups.id
+}
+
+output "longhorn_backup_role_arn" {
+  description = "IAM role assumed by Longhorn through EKS Pod Identity for S3 backup access."
+  value       = aws_iam_role.longhorn_backup.arn
+}

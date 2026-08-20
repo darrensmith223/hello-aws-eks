@@ -41,16 +41,21 @@ spec:
         longhornUI:
           replicas: 1
 
+        # Prometheus Operator discovers Longhorn Manager metrics through this
+        # ServiceMonitor. Prometheus is installed in sync wave 8, before
+        # Longhorn in wave 15, so the CRD exists when this chart syncs.
+        metrics:
+          serviceMonitor:
+            enabled: true
+
         ingress:
           enabled: false
 
-        # Re-enabled: this job validates upgrade safety (e.g. detects
-        # in-progress replica rebuilds, incompatible settings) before a
-        # chart upgrade proceeds. It was previously disabled with no
-        # documented reason; there's no known incompatibility that
-        # requires disabling it, so it stays on.
+        # Longhorn recommends disabling the Helm pre-upgrade hook when
+        # the chart is managed by ArgoCD/GitOps. Upgrade safety is still
+        # validated explicitly during planned Longhorn upgrades.
         preUpgradeChecker:
-          jobEnabled: true
+          jobEnabled: false
   syncPolicy:
     automated:
       prune: true
@@ -58,3 +63,7 @@ spec:
     syncOptions:
       - CreateNamespace=false
       - ServerSideApply=true
+      # The ServiceMonitor CRD is supplied by kube-prometheus-stack. This
+      # avoids a first-sync dry-run race if the child Applications reconcile
+      # concurrently while Prometheus CRDs are still registering.
+      - SkipDryRunOnMissingResource=true

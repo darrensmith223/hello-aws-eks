@@ -36,9 +36,8 @@ spec:
                   prefix: loki_index_
                   period: 24h
           storage:
-            # Bucket name injected at deploy time via the ArgoCD Application
-            # values override; see deploy.ps1 which patches this field from
-            # the aws stack's loki_bucket_name output.
+            # Dev uses the deterministic ${name}-loki-logs bucket from the
+            # aws Terraform layer (practice-eks-dev-loki-logs for this env).
             bucketNames:
               chunks: practice-eks-dev-loki-logs
               ruler:  practice-eks-dev-loki-logs

@@ -12,7 +12,9 @@ This repo provisions a production-ready AWS EKS cluster using a two-stack Terraf
 - ArgoCD (HTTPS via ACM + Route53)
 - External Secrets Operator (backed by AWS Secrets Manager)
 - Vault with KMS auto-unseal and Raft HA storage
+- Prometheus + Alertmanager + kube-state-metrics + node-exporter
 - Grafana + Loki (S3-backed) + Alloy log collector
+- Longhorn distributed storage on local NVMe with S3 off-cluster backups
 - LDAP (389ds) with persistent storage
 
 ---
@@ -23,7 +25,7 @@ Two Terraform stacks replace the previous five-stack layout:
 
 ```
 bootstrap     →  S3 state bucket + DynamoDB lock table
-aws           →  VPC, EKS, IRSA roles, ACM cert, Route53 zone, Loki S3 bucket
+aws           →  VPC, EKS, IAM workload roles, ACM cert, Route53 zone, Loki + Longhorn S3 buckets
 platform      →  All Kubernetes resources (namespaces, service accounts,
                  Helm releases, ArgoCD Applications, DNS record)
 ```
@@ -122,6 +124,10 @@ kubectl get storageclass
 **gp3 as sole default StorageClass.** EKS ships with `gp2` marked as default. This repo creates `gp3` as the default and patches `gp2` to remove its default annotation, preventing the ambiguous-PVC-binding failure that occurs when two defaults exist.
 
 **Loki S3 backend.** Loki uses an S3 bucket (provisioned in the `aws` stack) instead of the default filesystem backend. Logs survive pod restarts and the setup can scale to multiple replicas. A 30-day lifecycle rule keeps storage costs in check for dev.
+
+**Longhorn storage and backups.** Longhorn remains an opt-in StorageClass; `gp3` stays the sole default. Longhorn replicas use the c6gd local NVMe mounted at `/var/lib/longhorn`, while off-cluster backups use S3. The dev backup bucket is configured by `longhorn_backup_bucket_name` in `infra/terraform/environments/dev/aws/terraform.tfvars` and defaults to `dev-longhorn-backups`. Longhorn receives S3 permissions through EKS Pod Identity rather than static AWS keys. `deploy.ps1` configures a `daily-backup` recurring job at 03:00 UTC, retains seven backups per volume, and performs a periodic full backup after seven incremental backups.
+
+**Prometheus monitoring.** `kube-prometheus-stack` installs Prometheus Operator, Prometheus, Alertmanager, node-exporter, and kube-state-metrics. Its bundled Grafana is disabled; the existing Grafana instance uses Prometheus as its default datasource and Loki as its logs datasource. Longhorn exposes a ServiceMonitor so its storage metrics are collected automatically. Prometheus persistence remains on `gp3` so a Longhorn storage incident does not also remove the metrics needed to diagnose it.
 
 **ArgoCD repo secret via direct Kubernetes Secret.** The repo credential is read from AWS Secrets Manager at `terraform apply` time and written as a plain Kubernetes Secret. This avoids the previous ExternalSecret approach, which required ArgoCD to already be syncing before it could read its own repo credential.
 

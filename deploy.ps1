@@ -141,9 +141,10 @@ Run-Step "Terraform apply - aws layer" {
     terraform "-chdir=$AwsDir" apply -auto-approve
 }
 
-$clusterName = terraform "-chdir=$AwsDir" output -raw cluster_name
-$region      = terraform "-chdir=$AwsDir" output -raw aws_region
-$lokiBucket  = terraform "-chdir=$AwsDir" output -raw loki_bucket_name
+$clusterName          = terraform "-chdir=$AwsDir" output -raw cluster_name
+$region               = terraform "-chdir=$AwsDir" output -raw aws_region
+$longhornBackupBucket = terraform "-chdir=$AwsDir" output -raw longhorn_backup_bucket_name
+$longhornBackupRoleArn = terraform "-chdir=$AwsDir" output -raw longhorn_backup_role_arn
 
 if (-not $SkipKubeconfig) {
     Run-Step "Updating kubeconfig" {
@@ -154,13 +155,6 @@ if (-not $SkipKubeconfig) {
         kubectl get nodes
     }
 }
-
-# Patch the Loki bucket name into the ArgoCD Application manifest before apply.
-# This avoids hardcoding the bucket name in the k8s manifest while keeping
-# the manifest as the source of truth for everything else.
-$lokiManifest = "infra/k8s/platform/observability/loki.yaml"
-(Get-Content $lokiManifest) -replace "LOKI_BUCKET_PLACEHOLDER", $lokiBucket | Set-Content $lokiManifest
-Write-Host "Patched Loki bucket: $lokiBucket"
 
 Run-Step "Adding Helm repositories" {
     helm repo add external-dns https://kubernetes-sigs.github.io/external-dns/ --force-update
@@ -256,5 +250,91 @@ Wait-Until "ArgoCD ingress load balancer hostname" {
     return -not [string]::IsNullOrWhiteSpace($hostname)
 } 600 20
 
+# Longhorn's S3 bucket and IAM role are Terraform outputs, while the Longhorn
+# Helm Application stays GitOps-managed. Longhorn requires a credential Secret
+# for S3 even when static access keys are not used. The Secret below contains
+# only AWS_IAM_ROLE_ARN; EKS Pod Identity supplies short-lived credentials to
+# longhorn-service-account, so no AWS access key or secret key is stored here.
+# The BackupTarget CR is a first-class resource in Longhorn 1.12 and is applied
+# only after its CRD/controller are ready.
+Wait-Until "Longhorn BackupTarget CRD to be established" {
+    $crd = kubectl get crd backuptargets.longhorn.io -o json 2>$null | ConvertFrom-Json
+    if (-not $crd) { return $false }
+    $established = $crd.status.conditions | Where-Object { $_.type -eq "Established" } | Select-Object -ExpandProperty status
+    return $established -eq "True"
+} 900 10
+
+Wait-Until "Longhorn manager to be ready" {
+    $result = Run-AllowFailure {
+        kubectl rollout status daemonset/longhorn-manager -n longhorn-system --timeout=30s
+    }
+    return $result.ExitCode -eq 0
+} 900 15
+
+$longhornBackupCredentialSecret = "longhorn-backup-credentials"
+$longhornBackupTarget = "s3://$longhornBackupBucket@$region/backupstore/"
+$longhornBackupCredentialYaml = @"
+apiVersion: v1
+kind: Secret
+metadata:
+  name: $longhornBackupCredentialSecret
+  namespace: longhorn-system
+type: Opaque
+stringData:
+  AWS_IAM_ROLE_ARN: "$longhornBackupRoleArn"
+"@
+
+$longhornBackupTargetYaml = @"
+apiVersion: longhorn.io/v1beta2
+kind: BackupTarget
+metadata:
+  name: default
+  namespace: longhorn-system
+spec:
+  backupTargetURL: "$longhornBackupTarget"
+  credentialSecret: "$longhornBackupCredentialSecret"
+  pollInterval: "300"
+"@
+
+# Back up Longhorn volumes every day at 03:00 UTC. Putting the job in the
+# "default" recurring-job group makes it apply automatically to Longhorn
+# volumes that do not define their own recurring-job policy. Retain seven
+# backups per volume and force a full backup after every seven incrementals.
+$longhornRecurringBackupYaml = @"
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: daily-backup
+  namespace: longhorn-system
+spec:
+  cron: "0 3 * * *"
+  task: "backup"
+  groups:
+    - default
+  retain: 7
+  concurrency: 1
+  parameters:
+    full-backup-interval: "7"
+"@
+
+Run-Step "Configuring Longhorn S3 backup credentials" {
+    $longhornBackupCredentialYaml | kubectl apply -f -
+}
+
+Run-Step "Configuring Longhorn S3 backup target" {
+    $longhornBackupTargetYaml | kubectl apply -f -
+}
+
+Wait-Until "Longhorn S3 backup target to be available" {
+    $available = kubectl get backuptarget default -n longhorn-system -o jsonpath='{.status.available}' 2>$null
+    return $available -eq "true"
+} 600 15
+
+Run-Step "Configuring Longhorn daily recurring backups" {
+    $longhornRecurringBackupYaml | kubectl apply -f -
+}
+
+Write-Host "Longhorn backup target: $longhornBackupTarget"
+Write-Host "Longhorn recurring backup: daily-backup at 03:00 UTC (retain 7)"
 Write-Host ""
 Write-Host "Deployment complete." -ForegroundColor Green

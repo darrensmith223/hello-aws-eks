@@ -200,10 +200,16 @@ module "eks" {
           # iscsi: required by Longhorn's V1 data engine.
           # nfs-utils: required only if/when Longhorn RWX volumes are used.
           dnf install -y iscsi-initiator-utils nfs-utils
+
+          # Longhorn V1 requires the iscsi_tcp kernel module to be loaded
+          # before iscsid starts. Persist it so the ordering survives reboots.
+          echo iscsi_tcp > /etc/modules-load.d/longhorn.conf
+          modprobe iscsi_tcp
           systemctl enable --now iscsid
 
           iscsiadm --version
           systemctl is-active iscsid
+          lsmod | grep -q '^iscsi_tcp'
 
           # --- Local NVMe instance store for Longhorn data ---
           # Distinguish the instance-store NVMe device from the root EBS

@@ -3,7 +3,8 @@ param(
     [string]$Profile = "terraform",
     [string]$ClusterName = "practice-eks-dev",
     [string]$DomainName = "ddsprojects.link",
-    [string]$RepoSecretName = "dev/argocd/repo/hello-aws-eks"
+    [string]$RepoSecretName = "dev/argocd/repo/hello-aws-eks",
+    [string]$LonghornBackupBucket = "dev-longhorn-backups"
 )
 
 $ErrorActionPreference = "Continue"
@@ -119,12 +120,133 @@ Test-Step "Rancher hostname resolves" {
     nslookup "rancher.$DomainName"
 }
 
+Test-Step "Prometheus ArgoCD app exists" {
+    kubectl get application kube-prometheus-stack -n argocd
+}
+
+Test-Step "Prometheus Operator CRDs are established" {
+    kubectl wait --for=condition=Established crd/servicemonitors.monitoring.coreos.com --timeout=120s
+    kubectl wait --for=condition=Established crd/prometheuses.monitoring.coreos.com --timeout=120s
+}
+
+Test-Step "Prometheus Operator is available" {
+    kubectl rollout status deployment/kube-prometheus-stack-operator -n monitoring --timeout=10m
+}
+
+Test-Step "Prometheus instance and gp3 PVC exist" {
+    kubectl get prometheus -n monitoring
+
+    $pvcs = kubectl get pvc -n monitoring -o json | ConvertFrom-Json
+    $prometheusPvc = $pvcs.items | Where-Object {
+        $_.metadata.name -like "prometheus-kube-prometheus-stack-prometheus-db-prometheus-kube-prometheus-stack-prometheus-*" -or
+        $_.metadata.name -like "prometheus-kube-prometheus-stack-prometheus-db-*"
+    } | Select-Object -First 1
+
+    if (-not $prometheusPvc) {
+        throw "Prometheus persistent volume claim not found in monitoring namespace"
+    }
+    if ($prometheusPvc.spec.storageClassName -ne "gp3") {
+        throw "Prometheus PVC should use gp3, got $($prometheusPvc.spec.storageClassName)"
+    }
+    if ($prometheusPvc.status.phase -ne "Bound") {
+        throw "Prometheus PVC is not Bound: $($prometheusPvc.status.phase)"
+    }
+}
+
+Test-Step "Grafana ArgoCD app exists" {
+    kubectl get application grafana -n argocd
+}
+
 Test-Step "Longhorn ArgoCD app exists" {
     kubectl get application longhorn -n argocd
 }
 
+Test-Step "Longhorn S3 backup bucket exists" {
+    aws s3api head-bucket `
+        --bucket $LonghornBackupBucket `
+        --region $Region `
+        --profile $Profile
+}
+
+Test-Step "Longhorn has an EKS Pod Identity association" {
+    $associationId = aws eks list-pod-identity-associations `
+        --cluster-name $ClusterName `
+        --namespace longhorn-system `
+        --service-account longhorn-service-account `
+        --region $Region `
+        --profile $Profile `
+        --query "associations[0].associationId" `
+        --output text
+
+    if ([string]::IsNullOrWhiteSpace($associationId) -or $associationId -eq "None") {
+        throw "No Pod Identity association found for longhorn-system/longhorn-service-account"
+    }
+}
+
+Test-Step "Longhorn S3 credential Secret is keyless" {
+    $secret = kubectl get secret longhorn-backup-credentials -n longhorn-system -o json | ConvertFrom-Json
+    $keys = @($secret.data.PSObject.Properties.Name)
+
+    if ($keys -notcontains "AWS_IAM_ROLE_ARN") {
+        throw "Longhorn backup credential Secret does not contain AWS_IAM_ROLE_ARN"
+    }
+    if ($keys -contains "AWS_ACCESS_KEY_ID" -or $keys -contains "AWS_SECRET_ACCESS_KEY") {
+        throw "Longhorn backup credential Secret must not contain static AWS access keys"
+    }
+}
+
+Test-Step "Longhorn S3 BackupTarget is configured and available" {
+    $target = kubectl get backuptarget default -n longhorn-system -o json | ConvertFrom-Json
+    $expectedUrl = "s3://$LonghornBackupBucket@$Region/backupstore/"
+
+    if ($target.spec.backupTargetURL -ne $expectedUrl) {
+        throw "Expected Longhorn backup target $expectedUrl, got $($target.spec.backupTargetURL)"
+    }
+
+    if ($target.spec.credentialSecret -ne "longhorn-backup-credentials") {
+        throw "Expected Longhorn credential Secret longhorn-backup-credentials, got $($target.spec.credentialSecret)"
+    }
+
+    if ($target.status.available -ne $true) {
+        $message = ($target.status.conditions | Where-Object { $_.status -eq "False" } | Select-Object -First 1 -ExpandProperty message)
+        throw "Longhorn backup target is not available. $message"
+    }
+}
+
+Test-Step "Longhorn daily recurring backup job is configured" {
+    $job = kubectl get recurringjob daily-backup -n longhorn-system -o json | ConvertFrom-Json
+
+    if ($job.spec.task -ne "backup") {
+        throw "Expected recurring job task backup, got $($job.spec.task)"
+    }
+    if ($job.spec.cron -ne "0 3 * * *") {
+        throw "Expected daily backup cron 0 3 * * *, got $($job.spec.cron)"
+    }
+    if ($job.spec.retain -ne 7) {
+        throw "Expected recurring backup retention of 7, got $($job.spec.retain)"
+    }
+    if ($job.spec.groups -notcontains "default") {
+        throw "daily-backup must belong to Longhorn's default recurring-job group"
+    }
+}
+
 Test-Step "Longhorn manager DaemonSet is available" {
     kubectl rollout status daemonset/longhorn-manager -n longhorn-system --timeout=10m
+}
+
+Test-Step "Longhorn ServiceMonitor exists for Prometheus" {
+    $monitors = kubectl get servicemonitor -n longhorn-system -o json | ConvertFrom-Json
+    if (-not $monitors.items -or $monitors.items.Count -lt 1) {
+        throw "No ServiceMonitor found in longhorn-system"
+    }
+
+    $longhornMonitor = $monitors.items | Where-Object {
+        $_.spec.selector.matchLabels.app -eq "longhorn-manager"
+    } | Select-Object -First 1
+
+    if (-not $longhornMonitor) {
+        throw "No ServiceMonitor selecting app=longhorn-manager was found"
+    }
 }
 
 Test-Step "Longhorn StorageClass exists and gp3 remains default" {

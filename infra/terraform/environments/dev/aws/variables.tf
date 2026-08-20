@@ -35,7 +35,7 @@ variable "az_count" {
 }
 
 variable "node_instance_types" {
-  description = "EC2 instance types for the default managed node group. c6gd instances are Graviton (arm64) and include local NVMe instance storage, which is NOT used for Longhorn here -- a separate persistent EBS volume is attached instead. See eks-foundation module notes."
+  description = "EC2 instance types for the default managed node group. c6gd instances are Graviton (arm64) and include local NVMe instance storage mounted at /var/lib/longhorn for Longhorn replica data. The root EBS volume remains separate."
   type        = list(string)
   default     = ["c6gd.xlarge"]
 }
@@ -61,4 +61,15 @@ variable "node_max_size" {
 variable "domain_name" {
   description = "Base DNS domain for this environment."
   type        = string
+}
+
+variable "longhorn_backup_bucket_name" {
+  description = "S3 bucket used as the Longhorn off-cluster backupstore. Bucket names are globally unique; override this value if dev-longhorn-backups is unavailable in your AWS account."
+  type        = string
+  default     = "dev-longhorn-backups"
+
+  validation {
+    condition     = length(var.longhorn_backup_bucket_name) >= 3 && length(var.longhorn_backup_bucket_name) <= 63 && can(regex("^[a-z0-9][a-z0-9.-]*[a-z0-9]$", var.longhorn_backup_bucket_name))
+    error_message = "longhorn_backup_bucket_name must be a valid 3-63 character lowercase S3 bucket name."
+  }
 }

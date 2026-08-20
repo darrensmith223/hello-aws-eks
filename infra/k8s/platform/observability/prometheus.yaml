@@ -1,0 +1,82 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  annotations:
+    # Install the Prometheus Operator/CRDs before Longhorn (wave 15), because
+    # Longhorn creates a ServiceMonitor when metrics are enabled.
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 88.1.3
+    helm:
+      values: |
+        # The repo already has a standalone Grafana Application. Keep one
+        # Grafana and let it consume dashboards/datasources from this stack.
+        grafana:
+          enabled: false
+          forceDeployDashboards: true
+
+        alertmanager:
+          enabled: true
+
+        prometheus:
+          prometheusSpec:
+            retention: 15d
+
+            # Keep monitoring storage independent of Longhorn. If Longhorn is
+            # degraded, Prometheus remains available to help diagnose it.
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: gp3
+                  accessModes:
+                    - ReadWriteOnce
+                  resources:
+                    requests:
+                      storage: 30Gi
+
+            # Discover ServiceMonitors in all namespaces, including the one
+            # created by Longhorn in longhorn-system.
+            # kube-prometheus-stack otherwise defaults a nil selector to its
+            # own Helm release label. Explicitly disable that behavior so
+            # ServiceMonitors/PodMonitors from other platform namespaces are
+            # discovered without requiring chart-specific labels.
+            serviceMonitorSelectorNilUsesHelmValues: false
+            serviceMonitorSelector: {}
+            serviceMonitorNamespaceSelector: {}
+
+            podMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelector: {}
+            podMonitorNamespaceSelector: {}
+
+        # These control-plane components are AWS-managed in EKS and are not
+        # exposed at the conventional in-cluster endpoints expected by the
+        # chart. Disable those default scrapes to avoid false Down alerts.
+        kubeEtcd:
+          enabled: false
+
+        kubeControllerManager:
+          enabled: false
+
+        kubeScheduler:
+          enabled: false
+
+        kubeProxy:
+          enabled: false
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
